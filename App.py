@@ -267,7 +267,7 @@ st.markdown(f"""
 
 # --- HEADER (native components — cannot be escaped or hidden) ---------------- #
 st.title("Sentry · DCF Engine")
-st.caption("build: pipeline-test-1")
+st.caption("build: tsm-fix-1")
 st.caption("Two-stage discounted cash flow · assumptions auto-seeded from data, "
            "fully editable · verify against the 10-K before you trade on it.")
 st.divider()
@@ -360,6 +360,16 @@ def build_summary():
             continue
         price = s.get("price")
         mos = (res.fair - price) / price * 100 if price else None
+        # Implausibility guard: a sane equity DCF lands within a few hundred %
+        # of price. Beyond ±300% it's almost certainly a data/units problem
+        # (e.g. a non-USD ADR like TSM whose statements are in local currency
+        # while price is USD). Flag it and don't show a fake fair value.
+        if mos is not None and abs(mos) > 300:
+            recs.append({"Ticker": tk, "Fair": None, "Price": price,
+                         "MoS %": None, "g1 src": src,
+                         "Flags": "implausible fair value — likely currency/units "
+                                  "mismatch (non-USD filer or stale data)"})
+            continue
         recs.append({"Ticker": tk, "Fair": res.fair, "Price": price, "MoS %": mos,
                      "g1 src": src, "Flags": "; ".join(res.flags + dq) or "—"})
     return pd.DataFrame(recs)
@@ -433,12 +443,16 @@ def render_ticker(tk: str):
         cols[1].metric("Current price", "—" if pr is None else f"${pr:,.2f}")
         if pr:
             mos = (res.fair - pr) / pr * 100
-            badge = "under" if mos > 0 else "over"
-            cols[2].metric("Margin of safety", f"{mos:+.1f}%")
-            cols[2].markdown(
-                f"<span class='badge {badge}'>"
-                f"{'Undervalued' if mos > 0 else 'Overvalued'}</span>",
-                unsafe_allow_html=True)
+            if abs(mos) > 300:
+                cols[2].metric("Margin of safety", "n/a")
+                cols[2].caption("⚠️ implausible — likely currency/units mismatch")
+            else:
+                badge = "under" if mos > 0 else "over"
+                cols[2].metric("Margin of safety", f"{mos:+.1f}%")
+                cols[2].markdown(
+                    f"<span class='badge {badge}'>"
+                    f"{'Undervalued' if mos > 0 else 'Overvalued'}</span>",
+                    unsafe_allow_html=True)
 
         for f in res.flags + core.data_quality_flags(s):
             st.caption(f"⚠️ {f}")

@@ -481,13 +481,29 @@ def load_universe(tickers, rf=None, erp=DEFAULT_ERP, terminal=DEFAULT_TERMINAL):
                  "tax_rate": 0.21}
         assum, _ = core.derive_assumptions(stock, rf, erp, terminal, CAGR_CAP, FALLBACK_G1)
         mos = None
-        if assum["r"] is not None and row.get("_fcf") and row.get("_shares"):
+        # GUARD 1 — currency mismatch. Statement figures (FCF/cash/debt) are in
+        # the filer's reporting currency; price/shares for ADRs are USD. Running
+        # a DCF across two currencies produces garbage (e.g. TSM in TWD -> a
+        # +3000% "margin of safety"). Only compute the DCF when the reporting
+        # currency is USD (or unknown). Non-USD names get no dcf factor and the
+        # engine reweights around them.
+        _ccy = (row.get("_currency") or "USD").upper()
+        currency_ok = _ccy in ("USD", "")
+        if currency_ok and assum["r"] is not None and row.get("_fcf") and row.get("_shares"):
             res = core.two_stage_dcf(row["_fcf"], assum["g1"], assum["g2"],
                                      assum["gt"], assum["r"], row["_cash"],
                                      row["_debt"], row["_shares"])
             if not res.error and row.get("_price"):
-                mos = (res.fair - row["_price"]) / row["_price"]
+                m = (res.fair - row["_price"]) / row["_price"]
+                # GUARD 2 — implausibility. A sane equity DCF lands within a few
+                # hundred percent of price. Anything beyond ±300% is almost
+                # certainly a data/units problem (stale price, split lag, bad
+                # share count), so drop it rather than let it poison the
+                # cross-sectional composite.
+                mos = m if abs(m) <= 3.0 else None
         row["mos"] = mos
+        if not currency_ok:
+            row["_dcf_skipped"] = f"non-USD filer ({_ccy}) — DCF excluded"
         row["avail"] = _row_availability(row)
 
     rows = [rows_by_tk[tk] for tk in tickers]
