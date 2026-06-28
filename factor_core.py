@@ -150,8 +150,12 @@ GROUP_METRICS = {
 }
 
 DEFAULT_GROUP_WEIGHTS = {
-    "value": 0.20, "quality": 0.20, "growth": 0.125, "momentum": 0.175,
-    "dcf": 0.15, "short_interest": 0.05, "insider": 0.05, "institutional": 0.025,
+    # Five live factors (free, reliable at 500 names via EDGAR + Stooq), summing
+    # to 1.0. The three sentiment/positioning factors below have no free bulk
+    # source at scale, so they are weighted 0 — composite() reweights over the
+    # live factors automatically, so this is a clean drop, not a hack.
+    "value": 0.25, "quality": 0.25, "growth": 0.20, "momentum": 0.15, "dcf": 0.15,
+    "short_interest": 0.0, "insider": 0.0, "institutional": 0.0,
 }
 
 def standardize_group(rows, group, method="rank", winsor=(0.02, 0.98),

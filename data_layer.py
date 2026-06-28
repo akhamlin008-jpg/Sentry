@@ -80,9 +80,10 @@ INCLUDE_HOLDERS_INSIDER = os.environ.get("INCLUDE_HOLDERS_INSIDER", "0") == "1"
 USE_EDGAR = os.environ.get("USE_EDGAR", "1") == "1"
 
 try:
-    from universe import NON_US_EDGAR
+    from universe import NON_US_EDGAR, SECTORS as _SECTORS
 except Exception:
-    NON_US_EDGAR = {"TSM", "ASML", "HSBC", "ARM"}
+    NON_US_EDGAR = set()
+    _SECTORS = {}
 
 
 # --------------------------------------------------------------------------- #
@@ -265,32 +266,23 @@ def _fetch_one_live(ticker: str) -> dict:
         row["_interest"], row["_revenue"] = interest, revenue
         row["fcf_series"] = fcf_series
 
-        # ---------------- short interest / sector / geo (one .info scrape) ----
-        si_pct = si_ratio = None
-        row.setdefault("_country", None)
-        row.setdefault("_currency", None)
-        row.setdefault("sector", None)
-        row.setdefault("industry", None)
-        try:
-            info = nl.with_backoff(t.get_info)
-            if info:
-                si_pct = info.get("shortPercentOfFloat")
-                si_ratio = info.get("shortRatio")
-                row["_country"] = info.get("country")
-                row["_currency"] = info.get("financialCurrency") or info.get("currency")
-                row["sector"] = info.get("sector")
-                row["industry"] = info.get("industry")
-        except Exception:
-            pass
-        row["short_pct_float"] = float(si_pct) if si_pct is not None else None
-        row["days_to_cover"] = float(si_ratio) if si_ratio is not None else None
+        # ---------------- sector / geo (from the universe CSV, no scrape) -----
+        # At 500 names the per-ticker Yahoo .info scrape was the single heaviest,
+        # most rate-limit-prone call. Sector now comes from the S&P 500 CSV, and
+        # all names are US/USD filers by construction — so no .info call at all.
+        row["sector"] = _SECTORS.get(ticker, "Unknown")
+        row["industry"] = None
+        row["_country"] = "United States"
+        row["_currency"] = "USD"
 
-        # ---------------- institutional / insider (weakest; OFF by default) ----
+        # ---------------- dead factors (no free bulk source at scale) ---------
+        # short_interest / institutional / insider are weighted 0 in factor_core
+        # (see DEFAULT_GROUP_WEIGHTS). Kept as None so the row schema is stable
+        # and the engine reweights over the five live factors.
+        row["short_pct_float"] = None
+        row["days_to_cover"] = None
         row["inst_own_pct"] = None
         row["insider_net_ratio"] = None
-        if INCLUDE_HOLDERS_INSIDER:
-            row["inst_own_pct"] = _scrape_institutional(t)
-            row["insider_net_ratio"] = _scrape_insider(t)
 
     except Exception as e:
         row["error"] = str(e)

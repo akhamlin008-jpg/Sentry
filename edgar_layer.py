@@ -56,9 +56,20 @@ def _throttle():
 # ticker -> CIK
 # --------------------------------------------------------------------------- #
 def cik_map() -> dict:
+    # Prefer the CIKs baked into the universe CSV (no network needed). Fall back
+    # to the SEC's company_tickers.json only for names not in the universe.
+    try:
+        from universe import CIKS as _BAKED
+    except Exception:
+        _BAKED = {}
     cached = kv.get("edgar:cik_map", max_age_sec=7 * kv.DAY)
     if cached:
-        return cached
+        merged = dict(cached)
+        merged.update(_BAKED)
+        return merged
+    if _BAKED:
+        # Universe CIKs are enough for the S&P 500 universe; avoid the network.
+        return dict(_BAKED)
     _throttle()
     r = requests.get("https://www.sec.gov/files/company_tickers.json",
                      headers=HEADERS, timeout=30)
