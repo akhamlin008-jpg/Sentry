@@ -465,6 +465,10 @@ def load_universe(tickers, rf=None, erp=DEFAULT_ERP, terminal=DEFAULT_TERMINAL):
         row["_beta"] = betas.get(tk)
         row["mom_12_1"] = _momentum(close, tk, MOM_12, MOM_SKIP)
         row["mom_6_1"] = _momentum(close, tk, MOM_6, MOM_SKIP)
+        # short-term reversal: most-recent 1-week and 1-month returns (the
+        # factor engine reverses the sign — recent losers score high).
+        row["ret_5d"] = _trailing_return(close, tk, 5)
+        row["ret_21d"] = _trailing_return(close, tk, 21)
 
         stock = {"analyst_g5": None,
                  "hist_cagr": core.robust_cagr(row.get("fcf_series") or [], cap=CAGR_CAP),
@@ -508,6 +512,21 @@ def load_universe(tickers, rf=None, erp=DEFAULT_ERP, terminal=DEFAULT_TERMINAL):
             "dyield": mkt["dyield"], "betas": betas, "adv": mkt["adv"],
             "rf": rf, "availability": availability,
             "benchmark": mkt["benchmark"], "source_mix": source_mix}
+
+
+def _trailing_return(close_df, tk, window):
+    """Most-recent `window`-day simple return (no skip). Used for short-term
+    reversal. Returns None if history is too short."""
+    if getattr(close_df, "empty", True) or tk not in close_df:
+        return None
+    s = close_df[tk].dropna()
+    if len(s) < window + 1:
+        return None
+    p_now = s.iloc[-1]
+    p_then = s.iloc[-1 - window]
+    if p_then <= 0:
+        return None
+    return float(p_now / p_then - 1.0)
 
 
 def _momentum(close_df, tk, lookback, skip):

@@ -1,53 +1,174 @@
-name: refresh-data
+"""
+pages/2_Factor_Analysis.py — multi-factor heat map and long/short candidate
+generation. Standalone page; feeds the Risk Report via st.session_state.
 
-# Fetches market data on a schedule and commits the on-disk cache, so the
-# Streamlit app reads pre-fetched files instead of calling Yahoo at request time.
-# A batch job only has to succeed ONCE per run (and retries next run), which is
-# far more reliable than a live app that must succeed on every page load.
+Method note shown to the user, not buried: scores are CROSS-SECTIONAL. A grade
+of A means "top of THIS universe right now," not an absolute verdict. Change the
+universe and every score moves. The composite is a weighted blend of
+standardized factor scores with missing factors reweighted away, then
+re-standardized — so the column you rank on is a clean z within the universe.
+"""
+from __future__ import annotations
 
-on:
-  schedule:
-    # Times are UTC. 11:00 UTC ≈ 06:00 ET (pre-market). Add more lines for
-    # intraday refreshes if you want fresher prices.
-    - cron: "0 11 * * 1-5"
-  workflow_dispatch: {}   # manual "Run workflow" button
+import numpy as np
+import pandas as pd
+import streamlit as st
 
-permissions:
-  contents: write          # needed to commit the refreshed cache
+import factor_core as fc
+import data_layer as dl
+from universe import TICKERS, THEME_CSS, NVIDIA_GREEN, hero
 
-concurrency:
-  group: refresh-data
-  cancel-in-progress: false
+st.set_page_config(page_title="Sentry · Factor Analysis", layout="wide")
+st.markdown(THEME_CSS, unsafe_allow_html=True)
+st.title("Factor Heat Map")
+st.caption("Eight-factor cross-sectional scoring · DCF is one factor, not the "
+           "verdict · longs and shorts fall out of the composite ranking.")
+st.divider()
 
-jobs:
-  refresh:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-          cache: pip
+@st.cache_data(ttl=24 * 3600, show_spinner="Pulling financials + prices (cached 24h)…")
+def _load(tickers):
+    return dl.load_universe(list(tickers))
 
-      - name: Install dependencies
-        run: pip install -r requirements.txt
 
-      - name: Fetch snapshot
-        env:
-          # ZERO-EDIT DEFAULT: USE_EDGAR=0 runs on Yahoo and needs no email.
-          # To enable SEC EDGAR fundamentals (US filers), set USE_EDGAR to "1"
-          # AND put a real contact email in EDGAR_USER_AGENT below (EDGAR 403s
-          # blank/placeholder emails). EDGAR is the more reliable source but
-          # requires that one edit — that's the only required edit in the repo.
-          USE_EDGAR: "1"
-          EDGAR_USER_AGENT: "Sentry akhamlin008@gmail.com"
-          INCLUDE_HOLDERS_INSIDER: "0"
-          DCF_CACHE_DIR: ".cache"
-        run: python fetch_snapshot.py
+payload = _load(tuple(TICKERS))
+rows = payload["rows"]
+avail = payload["availability"]
 
-      - name: Commit refreshed cache
-        uses: stefanzweifel/git-auto-commit-action@v5
-        with:
-          commit_message: "chore: data refresh"
-          file_pattern: ".cache/**"
+# ---- freshness + provenance bar ------------------------------------------- #
+_mix = payload.get("source_mix", {})
+_n_loaded = sum(1 for r in rows if not r.get("error"))
+_src_str = ", ".join(f"{v} {k}" for k, v in sorted(_mix.items())) or "—"
+_age = dl.kv.age_seconds(f"market:close:{dl._univ_hash(list(TICKERS) + [dl.BENCHMARK])}")
+_age_str = "fresh" if _age is None else f"{_age/3600:.0f}h old prices"
+st.caption(
+    f"Universe **{len(TICKERS)}** names · **{_n_loaded}** loaded · "
+    f"fundamentals source: {_src_str} · {_age_str} · "
+    f"data as of {payload['as_of']:%Y-%m-%d %H:%M}")
+if payload["returns"].empty:
+    st.error("Price download failed and no cached prices were available — "
+             "momentum, betas, ADV and the entire Risk Report will be empty. "
+             "Re-run once Yahoo/Stooq is reachable, or seed the cache via "
+             "fetch_snapshot.py.")
+
+# ---- sidebar controls ------------------------------------------------------ #
+st.sidebar.header("Standardization")
+method = st.sidebar.selectbox(
+    "Method", ["rank", "z", "zmean"], index=0,
+    help="rank = rank-based inverse-normal (outlier-proof, recommended). "
+         "z = robust median/MAD z. zmean = classic mean/std z.")
+neutralize = st.sidebar.toggle("Sector-neutralize", value=False,
+    help="Score each name vs its own sector (intra-sector ranking).")
+
+st.sidebar.header("Factor weights")
+st.sidebar.caption("Renormalized over factors actually present per name.")
+# Only the live factors (non-zero default weight) get a slider. The
+# sentiment/positioning factors (short_interest/insider/institutional) have no
+# free bulk source at 500 names and are weighted 0 — hidden here to avoid
+# confusing empty controls. The engine reweights over the live five.
+LIVE_FACTORS = [g for g, w in fc.DEFAULT_GROUP_WEIGHTS.items() if w > 0]
+weights = {g: 0.0 for g in fc.DEFAULT_GROUP_WEIGHTS}   # start all at 0
+for g in LIVE_FACTORS:
+    w0 = fc.DEFAULT_GROUP_WEIGHTS[g]
+    cov = avail.get(g, 0.0)
+    tag = "cov-good" if cov >= 0.66 else "cov-mid" if cov >= 0.33 else "cov-bad"
+    st.sidebar.markdown(
+        f"<span class='note'>{g} · coverage "
+        f"<span class='{tag}'>{cov*100:.0f}%</span></span>", unsafe_allow_html=True)
+    weights[g] = st.sidebar.slider(g, 0.0, 0.50, float(w0), 0.005,
+                                   key=f"w_{g}", label_visibility="collapsed")
+
+st.sidebar.header("Selection")
+n_long = st.sidebar.slider("# long candidates", 3, 25, 10)
+n_short = st.sidebar.slider("# short candidates", 3, 25, 10)
+min_groups = st.sidebar.slider("Min factors observed", 1, 5, 3,
+    help="Names with fewer observable factor groups are excluded from selection.")
+
+# ---- score the universe ---------------------------------------------------- #
+result = fc.score_universe(rows, weights=weights, method=method,
+                           neutralize=neutralize)
+
+tickers = [r["ticker"] for r in rows]
+sectors = [r.get("sector") or "—" for r in rows]
+
+# ---- model-scope banner ---------------------------------------------------- #
+st.caption(
+    "**6-factor model** (value · quality · growth · momentum · reversal · dcf), free data: "
+    "fundamentals from SEC EDGAR, prices from Stooq/Yahoo. Sentiment factors "
+    "(short interest, insider, institutional) are intentionally excluded — they "
+    "have no reliable free source at 500 names — so they're weighted 0, not "
+    "faked. DCF is blank for financials and negative-FCF names by design; the "
+    "composite reweights over whatever factors each name actually has.")
+
+# ---- heat map table -------------------------------------------------------- #
+group_order = LIVE_FACTORS
+heat = pd.DataFrame({"Ticker": tickers, "Sector": sectors})
+for g in group_order:
+    heat[g] = result["group_score"][g]
+heat["COMPOSITE"] = result["composite"]
+heat["Pct"] = result["percentile"]
+heat["Grade"] = result["grade"]
+heat = heat.sort_values("COMPOSITE", ascending=False, na_position="last").reset_index(drop=True)
+
+st.subheader("Factor scores (standardized, cross-sectional)")
+sty = (heat.style
+       .format({g: "{:+.2f}" for g in group_order} |
+               {"COMPOSITE": "{:+.2f}", "Pct": "{:.0f}"}, na_rep="·")
+       .background_gradient(cmap="RdYlGn", subset=group_order, vmin=-2.0, vmax=2.0)
+       .background_gradient(cmap="RdYlGn", subset=["COMPOSITE"], vmin=-2.0, vmax=2.0)
+       .background_gradient(cmap="Greens", subset=["Pct"], vmin=0, vmax=100))
+st.dataframe(sty, hide_index=True, width="stretch", height=560)
+st.caption("Cell = standardized factor score (z). Green = attractive for a LONG, "
+           "red = unattractive. '·' = factor not observable for that name "
+           "(it was reweighted out of that name's composite, not scored 0).")
+
+# ---- long / short candidates ----------------------------------------------- #
+longs, shorts = fc.select_candidates(tickers, result, n_long=n_long,
+                                     n_short=n_short, min_groups_long=min_groups,
+                                     min_groups_short=min_groups)
+
+def _breakdown(tk):
+    i = tickers.index(tk)
+    d = {g: result["group_score"][g][i] for g in group_order}
+    d["sector"] = sectors[i]
+    return d
+
+cL, cR = st.columns(2)
+with cL:
+    st.subheader("🟢 Long candidates")
+    dfl = pd.DataFrame([{"Ticker": t, "Composite": c, "Pct": p, **_breakdown(t)}
+                        for (t, c, p) in longs])
+    if not dfl.empty:
+        st.dataframe(dfl.style.format(
+            {"Composite": "{:+.2f}", "Pct": "{:.0f}"} |
+            {g: "{:+.2f}" for g in group_order}, na_rep="·")
+            .background_gradient(cmap="RdYlGn", subset=group_order, vmin=-2, vmax=2),
+            hide_index=True, width="stretch")
+with cR:
+    st.subheader("🔴 Short candidates")
+    dfs = pd.DataFrame([{"Ticker": t, "Composite": c, "Pct": p, **_breakdown(t)}
+                        for (t, c, p) in shorts])
+    if not dfs.empty:
+        st.dataframe(dfs.style.format(
+            {"Composite": "{:+.2f}", "Pct": "{:.0f}"} |
+            {g: "{:+.2f}" for g in group_order}, na_rep="·")
+            .background_gradient(cmap="RdYlGn_r", subset=group_order, vmin=-2, vmax=2),
+            hide_index=True, width="stretch")
+
+# ---- hand off to the risk page --------------------------------------------- #
+st.session_state["long_candidates"] = [t for (t, _, _) in longs]
+st.session_state["short_candidates"] = [t for (t, _, _) in shorts]
+st.session_state["factor_result"] = {
+    "tickers": tickers,
+    "composite": result["composite"].tolist(),
+    "grade": list(result["grade"]),
+    "sector": sectors,
+}
+
+st.divider()
+n_l, n_s = len(longs), len(shorts)
+st.success(f"Selected {n_l} longs / {n_s} shorts → open **Risk Report** to run "
+           "correlation, concentration, stress, VaR, sizing and hedges on this book.")
+st.caption("Selection is by composite rank with a minimum-evidence filter. It is "
+           "a screen, not a recommendation, and says nothing about position size "
+           "— that is the Risk Report's job.")

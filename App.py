@@ -93,7 +93,7 @@ st.markdown(f"""
 
 # --- HEADER (native components — cannot be escaped or hidden) ---------------- #
 st.title("Sentry · DCF Engine")
-st.caption("build: v2-500names")
+st.caption("build: v3-reversal")
 st.caption("Two-stage DCF across ~500 US large caps · fundamentals from SEC EDGAR · "
            "verify against the 10-K before you trade on it.")
 st.divider()

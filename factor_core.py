@@ -143,6 +143,7 @@ GROUP_METRICS = {
                        ("accruals", -1)],
     "growth":         [("rev_cagr", +1), ("fcf_cagr", +1), ("eps_cagr", +1)],
     "momentum":       [("mom_12_1", +1), ("mom_6_1", +1)],
+    "reversal":       [("ret_5d", -1), ("ret_21d", -1)],
     "short_interest": [("short_pct_float", -1), ("days_to_cover", -1)],
     "insider":        [("insider_net_ratio", +1)],
     "institutional":  [("inst_own_pct", +1)],
@@ -150,11 +151,13 @@ GROUP_METRICS = {
 }
 
 DEFAULT_GROUP_WEIGHTS = {
-    # Five live factors (free, reliable at 500 names via EDGAR + Stooq), summing
-    # to 1.0. The three sentiment/positioning factors below have no free bulk
-    # source at scale, so they are weighted 0 — composite() reweights over the
-    # live factors automatically, so this is a clean drop, not a hack.
-    "value": 0.25, "quality": 0.25, "growth": 0.20, "momentum": 0.15, "dcf": 0.15,
+    # Six live factors (free, reliable at 500 names via EDGAR + Stooq), summing
+    # to 1.0. Reversal is short-term mean-reversion (recent losers, expected to
+    # bounce) and is orthogonal to momentum, which skips the most recent month.
+    # The three sentiment/positioning factors below have no free bulk source at
+    # scale, so they are weighted 0 — composite() reweights over the live ones.
+    "value": 0.22, "quality": 0.22, "growth": 0.16,
+    "momentum": 0.13, "dcf": 0.13, "reversal": 0.14,
     "short_interest": 0.0, "insider": 0.0, "institutional": 0.0,
 }
 
