@@ -1,66 +1,63 @@
-"""
-fetch_snapshot.py — batch data refresh, run on a schedule (e.g. GitHub Actions),
-NOT inside the Streamlit request path.
+# Sentry
 
-It calls the same data_layer.load_universe() the app uses, which populates the
-on-disk cache (.cache/*.json fundamentals + *.parquet price frames). Commit that
-cache (see .github/workflows/refresh.yml) and the app reads it instantly with
-zero live data calls — so opening the app 100x/day triggers no network at all.
+DCF + multi-factor scoring + portfolio-risk engine, built to run reliably on
+free infrastructure even under heavy daily use.
 
-This is the architecture that makes app reliability independent of Yahoo: a
-batch job only has to succeed ONCE per schedule (and retries on the next run),
-whereas a live app must succeed on EVERY page load.
+## Run it
 
-Run locally:   python fetch_snapshot.py
-Env toggles:   USE_EDGAR=1  INCLUDE_HOLDERS_INSIDER=1  DCF_CACHE_DIR=.cache
-"""
-from __future__ import annotations
+```bash
+pip install -r requirements.txt
+streamlit run App.py
+```
 
-import datetime as dt
-import json
-import sys
+In a Codespace it auto-starts (see `.devcontainer/devcontainer.json`). The app
+has three pages: the DCF engine (`App.py`), Factor Analysis, and Risk Report.
 
-import cache_layer as kv
-import data_layer as dl
-from universe import TICKERS
+## Why it stays reliable
 
+* **Disk cache** (`cache_layer.py`) — fundamentals/prices are cached to disk with
+  a daily TTL and survive restarts, so opening the app 100×/day ≈ one fetch per
+  ticker per day, not 100.
+* **Hardened network** (`net_layer.py`) — a shared browser-impersonating session
+  with exponential backoff on rate limits; low concurrency.
+* **Official free data** — SEC EDGAR for fundamentals (opt-in), Stooq as a price
+  fallback, Yahoo otherwise.
+* **Scheduled refresh** (`.github/workflows/refresh.yml`) — a GitHub Action
+  fetches data a few times a day and commits the cache, so the live app reads
+  pre-fetched files and makes zero network calls.
 
-def main() -> int:
-    started = dt.datetime.now()
-    print(f"[snapshot] {started:%Y-%m-%d %H:%M} · {len(TICKERS)} tickers · "
-          f"USE_EDGAR={dl.USE_EDGAR} HOLDERS={dl.INCLUDE_HOLDERS_INSIDER}")
+## Headers
 
-    payload = dl.load_universe(TICKERS)
+Page headers are rendered with native Streamlit components (`st.title` /
+`st.caption`), not raw HTML — so they can't be hidden or escaped, and the theme
+lives in `.streamlit/config.toml` (where Streamlit actually reads it).
 
-    rows = payload["rows"]
-    loaded = sum(1 for r in rows if not r.get("error"))
-    failed = [r["ticker"] for r in rows if r.get("error")]
-    rets = payload["returns"]
+## Before trusting EDGAR numbers
 
-    meta = {
-        "as_of": started.isoformat(),
-        "tickers": list(TICKERS),
-        "loaded": loaded,
-        "failed": failed,
-        "source_mix": payload.get("source_mix", {}),
-        "price_rows": int(len(rets)) if rets is not None else 0,
-        "price_cols": int(rets.shape[1]) if (rets is not None and not rets.empty) else 0,
-    }
-    kv.put("snapshot:meta", meta)
+Set a real contact email so SEC EDGAR doesn't reject you, then smoke-test:
 
-    print(f"[snapshot] loaded {loaded}/{len(TICKERS)} · "
-          f"sources={meta['source_mix']} · "
-          f"prices {meta['price_rows']}x{meta['price_cols']}")
-    if failed:
-        print(f"[snapshot] failed: {', '.join(failed)}")
+```bash
+export EDGAR_USER_AGENT="Your Name you@email.com"
+python edgar_layer.py        # should print sane AAPL fundamentals
+```
 
-    # Exit non-zero only on a total wipeout, so the Action surfaces real outages
-    # but tolerates a few thin names.
-    if loaded == 0:
-        print("[snapshot] ERROR: zero tickers loaded — data sources unreachable.")
-        return 1
-    return 0
+Then enable EDGAR fundamentals with `USE_EDGAR=1`. See `CHANGES.md` for the full
+rundown of what each file does and what to verify.
 
+## Optional toggles (environment variables)
 
-if __name__ == "__main__":
-    sys.exit(main())
+```bash
+USE_EDGAR=1                       # SEC EDGAR fundamentals for US filers
+EDGAR_USER_AGENT="You you@email"  # REQUIRED when USE_EDGAR=1
+INCLUDE_HOLDERS_INSIDER=1         # re-enable the weak institutional/insider scrapes
+DCF_CACHE_DIR=.cache              # cache location (default: .cache)
+```
+
+## Tests
+
+```bash
+python Test_core.py
+python test_factor_risk.py
+```
+
+Both are offline (no network) and should print all-pass.

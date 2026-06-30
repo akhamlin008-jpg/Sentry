@@ -1,53 +1,53 @@
-name: refresh-data
+name: paper-trade
 
-# Fetches market data on a schedule and commits the on-disk cache, so the
-# Streamlit app reads pre-fetched files instead of calling Yahoo at request time.
-# A batch job only has to succeed ONCE per run (and retries next run), which is
-# far more reliable than a live app that must succeed on every page load.
+# Monthly long-only ERC rebalance against the Alpaca PAPER account.
+#
+# SAFETY: paper_trader.py is DRY-RUN unless LIVE_PAPER=1. To go live on PAPER
+# money, (1) add ALPACA_API_KEY and ALPACA_SECRET_KEY as repo secrets
+# (Settings -> Secrets and variables -> Actions), and (2) set LIVE_PAPER to "1"
+# below. Until then it just logs the intended orders.
+#
+# It attempts on the 1st-5th of each month at 14:35 UTC (~9:35 ET, just after
+# the open) but a once-per-month marker (state/last_rebalance.txt) makes it
+# idempotent — it rebalances only once even though it runs several days, so a
+# holiday on the 1st doesn't cause a missed month.
 
 on:
   schedule:
-    # Times are UTC. 11:00 UTC ≈ 06:00 ET (pre-market). Add more lines for
-    # intraday refreshes if you want fresher prices.
-    - cron: "0 11 * * 1-5"
-  workflow_dispatch: {}   # manual "Run workflow" button
+    - cron: "35 14 1-5 * *"
+  workflow_dispatch: {}     # manual "Run workflow" button (use to dry-run anytime)
 
 permissions:
-  contents: write          # needed to commit the refreshed cache
+  contents: write           # to commit the monthly marker + refreshed cache
 
 concurrency:
-  group: refresh-data
+  group: paper-trade
   cancel-in-progress: false
 
 jobs:
-  refresh:
+  trade:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
           cache: pip
+      - run: pip install -r requirements.txt
 
-      - name: Install dependencies
-        run: pip install -r requirements.txt
-
-      - name: Fetch snapshot
+      - name: Run paper trader
         env:
-          # ZERO-EDIT DEFAULT: USE_EDGAR=0 runs on Yahoo and needs no email.
-          # To enable SEC EDGAR fundamentals (US filers), set USE_EDGAR to "1"
-          # AND put a real contact email in EDGAR_USER_AGENT below (EDGAR 403s
-          # blank/placeholder emails). EDGAR is the more reliable source but
-          # requires that one edit — that's the only required edit in the repo.
+          ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
+          ALPACA_SECRET_KEY: ${{ secrets.ALPACA_SECRET_KEY }}
+          # Flip to "1" ONLY after you've reviewed a dry-run's logged orders.
+          LIVE_PAPER: "0"
           USE_EDGAR: "1"
           EDGAR_USER_AGENT: "Sentry akhamlin008@gmail.com"
-          INCLUDE_HOLDERS_INSIDER: "0"
           DCF_CACHE_DIR: ".cache"
-        run: python fetch_snapshot.py
+        run: python paper_trader.py
 
-      - name: Commit refreshed cache
+      - name: Persist cache + monthly marker
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
-          commit_message: "chore: data refresh"
-          file_pattern: ".cache/**"
+          commit_message: "chore: paper-trade run"
+          file_pattern: ".cache/** state/**"

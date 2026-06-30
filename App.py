@@ -1,174 +1,275 @@
 """
-pages/2_Factor_Analysis.py — multi-factor heat map and long/short candidate
-generation. Standalone page; feeds the Risk Report via st.session_state.
+Sentry · DCF Engine — two-stage DCF over the ~500-name universe.
 
-Method note shown to the user, not buried: scores are CROSS-SECTIONAL. A grade
-of A means "top of THIS universe right now," not an absolute verdict. Change the
-universe and every score moves. The composite is a weighted blend of
-standardized factor scores with missing factors reweighted away, then
-re-standardized — so the column you rank on is a clean z within the universe.
+At 500 names this page can NO LONGER scrape Yahoo per ticker. It reads from the
+same pipeline as the Factor/Risk pages: data_layer.load_universe() (SEC EDGAR
+fundamentals + Stooq/Yahoo prices, all disk-cached). So the DCF page, factor
+page, and risk page all share one cache and one fetch — open any of them and the
+others are warm.
+
+The per-stock editable card is now PICKER-driven: choose a ticker to model in
+detail, rather than rendering 500 expanders. The summary table covers all names.
+
+All finance math still lives in dcf_core.py (no streamlit/yfinance there).
 """
 from __future__ import annotations
 
-import numpy as np
 import pandas as pd
 import streamlit as st
 
-import factor_core as fc
+import dcf_core as core
+import cache_layer as kv
 import data_layer as dl
-from universe import TICKERS, THEME_CSS, NVIDIA_GREEN, hero
+from universe import TICKERS, NVIDIA_GREEN
 
-st.set_page_config(page_title="Sentry · Factor Analysis", layout="wide")
-st.markdown(THEME_CSS, unsafe_allow_html=True)
-st.title("Factor Heat Map")
-st.caption("Eight-factor cross-sectional scoring · DCF is one factor, not the "
-           "verdict · longs and shorts fall out of the composite ranking.")
-st.divider()
+DEFAULT_TERMINAL = 0.025
+DEFAULT_ERP = 0.045
+DEFAULT_RF = 0.043
+FALLBACK_G1 = 0.10
+CAGR_CAP = (-0.10, 0.25)
+MOS_IMPLAUSIBLE = 300.0   # |MoS%| above this is flagged as a data/units problem
 
 
-@st.cache_data(ttl=24 * 3600, show_spinner="Pulling financials + prices (cached 24h)…")
+# =============================================================================
+# Data — one cached load shared with the other pages
+# =============================================================================
+@st.cache_data(ttl=24 * 3600, show_spinner="Loading universe (EDGAR + prices, cached)…")
 def _load(tickers):
     return dl.load_universe(list(tickers))
 
 
+def _stock_from_row(r: dict) -> dict:
+    """Map a data_layer row -> the dict dcf_core expects."""
+    fs = r.get("fcf_series") or []
+    s = {
+        "ticker": r["ticker"],
+        "fcf": r.get("_fcf"),
+        "fcf_series": fs,
+        "sbc": None,
+        "shares": r.get("_shares"),
+        "cash": r.get("_cash"),
+        "debt": r.get("_debt"),
+        "price": r.get("_price"),
+        "market_cap": r.get("_mktcap"),
+        "interest_expense": r.get("_interest"),
+        "tax_rate": 0.21,
+        "analyst_g5": None,
+        "hist_cagr": core.robust_cagr(fs, cap=CAGR_CAP),
+        "beta": r.get("_beta"),
+        "sector": r.get("sector"),
+        "source": r.get("_source_fund", "—"),
+        "error": r.get("error"),
+    }
+    s["missing"] = [k for k in ("fcf", "shares", "cash", "debt", "price")
+                    if s.get(k) is None]
+    return s
+
+
+# =============================================================================
+# Presentation
+# =============================================================================
+st.set_page_config(page_title="Sentry · DCF Engine", layout="wide",
+                   initial_sidebar_state="expanded")
+
+st.markdown(f"""
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap');
+  html, body, [class*="css"] {{ font-family: 'Inter', system-ui, sans-serif; }}
+  .stApp {{ background:
+      radial-gradient(1200px 600px at 80% -10%, #14210a 0%, transparent 55%),
+      #0a0a0a; }}
+  div[data-testid="stExpander"] {{ background: #111313; border: 1px solid #232323;
+      border-radius: 14px; margin-bottom: 10px; }}
+  div[data-testid="stMetricValue"] {{ font-weight: 800; }}
+  .stNumberInput input {{ background:#0e0e0e; border:1px solid #2a2a2a; color:#eee; }}
+  .stButton button {{ background:{NVIDIA_GREEN}; color:#0a0a0a; border:none;
+      font-weight:700; border-radius:8px; }}
+  .badge {{ display:inline-block; padding:2px 9px; border-radius:999px;
+      font-size:0.72rem; font-weight:700; }}
+  .under {{ background:rgba(118,185,0,.15); color:{NVIDIA_GREEN}; border:1px solid {NVIDIA_GREEN}; }}
+  .over  {{ background:rgba(255,77,79,.12); color:#ff6b6b; border:1px solid #ff6b6b; }}
+</style>
+""", unsafe_allow_html=True)
+
+# --- HEADER (native components — cannot be escaped or hidden) ---------------- #
+st.title("Sentry · DCF Engine")
+st.caption("build: v2-500names")
+st.caption("Two-stage DCF across ~500 US large caps · fundamentals from SEC EDGAR · "
+           "verify against the 10-K before you trade on it.")
+st.divider()
+
+# --- data load -------------------------------------------------------------- #
 payload = _load(tuple(TICKERS))
 rows = payload["rows"]
-avail = payload["availability"]
+stocks = {r["ticker"]: _stock_from_row(r) for r in rows}
 
-# ---- freshness + provenance bar ------------------------------------------- #
 _mix = payload.get("source_mix", {})
-_n_loaded = sum(1 for r in rows if not r.get("error"))
-_src_str = ", ".join(f"{v} {k}" for k, v in sorted(_mix.items())) or "—"
-_age = dl.kv.age_seconds(f"market:close:{dl._univ_hash(list(TICKERS) + [dl.BENCHMARK])}")
-_age_str = "fresh" if _age is None else f"{_age/3600:.0f}h old prices"
-st.caption(
-    f"Universe **{len(TICKERS)}** names · **{_n_loaded}** loaded · "
-    f"fundamentals source: {_src_str} · {_age_str} · "
-    f"data as of {payload['as_of']:%Y-%m-%d %H:%M}")
-if payload["returns"].empty:
-    st.error("Price download failed and no cached prices were available — "
-             "momentum, betas, ADV and the entire Risk Report will be empty. "
-             "Re-run once Yahoo/Stooq is reachable, or seed the cache via "
-             "fetch_snapshot.py.")
+_src = ", ".join(f"{v} {k}" for k, v in sorted(_mix.items())) or "—"
+_loaded = sum(1 for r in rows if not r.get("error"))
 
-# ---- sidebar controls ------------------------------------------------------ #
-st.sidebar.header("Standardization")
-method = st.sidebar.selectbox(
-    "Method", ["rank", "z", "zmean"], index=0,
-    help="rank = rank-based inverse-normal (outlier-proof, recommended). "
-         "z = robust median/MAD z. zmean = classic mean/std z.")
-neutralize = st.sidebar.toggle("Sector-neutralize", value=False,
-    help="Score each name vs its own sector (intra-sector ranking).")
+# --- sidebar ---------------------------------------------------------------- #
+st.sidebar.header("Macro knobs")
+rf = st.sidebar.number_input("Risk-free % (10y UST)",
+                             value=round((payload.get("rf") or DEFAULT_RF) * 100, 2),
+                             step=0.1) / 100
+erp = st.sidebar.number_input("Equity risk premium %",
+                              value=DEFAULT_ERP * 100, step=0.25) / 100
+term = st.sidebar.number_input("Terminal growth %",
+                               value=DEFAULT_TERMINAL * 100, step=0.25) / 100
 
-st.sidebar.header("Factor weights")
-st.sidebar.caption("Renormalized over factors actually present per name.")
-# Only the live factors (non-zero default weight) get a slider. The
-# sentiment/positioning factors (short_interest/insider/institutional) have no
-# free bulk source at 500 names and are weighted 0 — hidden here to avoid
-# confusing empty controls. The engine reweights over the live five.
-LIVE_FACTORS = [g for g, w in fc.DEFAULT_GROUP_WEIGHTS.items() if w > 0]
-weights = {g: 0.0 for g in fc.DEFAULT_GROUP_WEIGHTS}   # start all at 0
-for g in LIVE_FACTORS:
-    w0 = fc.DEFAULT_GROUP_WEIGHTS[g]
-    cov = avail.get(g, 0.0)
-    tag = "cov-good" if cov >= 0.66 else "cov-mid" if cov >= 0.33 else "cov-bad"
-    st.sidebar.markdown(
-        f"<span class='note'>{g} · coverage "
-        f"<span class='{tag}'>{cov*100:.0f}%</span></span>", unsafe_allow_html=True)
-    weights[g] = st.sidebar.slider(g, 0.0, 0.50, float(w0), 0.005,
-                                   key=f"w_{g}", label_visibility="collapsed")
+st.sidebar.header("Modeling")
+fcf_method = st.sidebar.selectbox("FCF base year", ["latest", "mean", "median"], index=0,
+    help="Normalize the launch FCF to reduce one-off distortion.")
+fcf_n = st.sidebar.slider("…over N years", 2, 5, 3, disabled=(fcf_method == "latest"))
+burden_sbc = st.sidebar.toggle("Burden FCF with stock-based comp", value=False)
 
-st.sidebar.header("Selection")
-n_long = st.sidebar.slider("# long candidates", 3, 25, 10)
-n_short = st.sidebar.slider("# short candidates", 3, 25, 10)
-min_groups = st.sidebar.slider("Min factors observed", 1, 5, 3,
-    help="Names with fewer observable factor groups are excluded from selection.")
+if st.sidebar.button("🔄 Refresh data"):
+    _load.clear()
+    for tk in TICKERS:
+        kv.delete(f"fund:{tk}:{int(dl.USE_EDGAR)}:{int(dl.INCLUDE_HOLDERS_INSIDER)}")
+    st.rerun()
 
-# ---- score the universe ---------------------------------------------------- #
-result = fc.score_universe(rows, weights=weights, method=method,
-                           neutralize=neutralize)
+st.caption(f"Data as of **{payload['as_of']:%Y-%m-%d %H:%M}** · "
+           f"{_loaded}/{len(TICKERS)} loaded · fundamentals: {_src} · "
+           f"risk-free {rf*100:.2f}% · ERP {erp*100:.2f}%")
 
-tickers = [r["ticker"] for r in rows]
-sectors = [r.get("sector") or "—" for r in rows]
 
-# ---- model-scope banner ---------------------------------------------------- #
-st.caption(
-    "**5-factor model** (value · quality · growth · momentum · dcf), free data: "
-    "fundamentals from SEC EDGAR, prices from Stooq/Yahoo. Sentiment factors "
-    "(short interest, insider, institutional) are intentionally excluded — they "
-    "have no reliable free source at 500 names — so they're weighted 0, not "
-    "faked. DCF is blank for financials and negative-FCF names by design; the "
-    "composite reweights over whatever factors each name actually has.")
+def _base_fcf(s):
+    series = s.get("fcf_series") or ([] if s.get("fcf") is None else [s["fcf"]])
+    base = core.normalize_fcf(series, fcf_method, fcf_n) if series else s.get("fcf")
+    if burden_sbc and base is not None and s.get("sbc"):
+        base = base - abs(s["sbc"])
+    return base
 
-# ---- heat map table -------------------------------------------------------- #
-group_order = LIVE_FACTORS
-heat = pd.DataFrame({"Ticker": tickers, "Sector": sectors})
-for g in group_order:
-    heat[g] = result["group_score"][g]
-heat["COMPOSITE"] = result["composite"]
-heat["Pct"] = result["percentile"]
-heat["Grade"] = result["grade"]
-heat = heat.sort_values("COMPOSITE", ascending=False, na_position="last").reset_index(drop=True)
 
-st.subheader("Factor scores (standardized, cross-sectional)")
-sty = (heat.style
-       .format({g: "{:+.2f}" for g in group_order} |
-               {"COMPOSITE": "{:+.2f}", "Pct": "{:.0f}"}, na_rep="·")
-       .background_gradient(cmap="RdYlGn", subset=group_order, vmin=-2.0, vmax=2.0)
-       .background_gradient(cmap="RdYlGn", subset=["COMPOSITE"], vmin=-2.0, vmax=2.0)
-       .background_gradient(cmap="Greens", subset=["Pct"], vmin=0, vmax=100))
-st.dataframe(sty, hide_index=True, width="stretch", height=560)
-st.caption("Cell = standardized factor score (z). Green = attractive for a LONG, "
-           "red = unattractive. '·' = factor not observable for that name "
-           "(it was reweighted out of that name's composite, not scored 0).")
+def _seeded(s):
+    return core.derive_assumptions(s, rf, erp, term, CAGR_CAP, FALLBACK_G1)
 
-# ---- long / short candidates ----------------------------------------------- #
-longs, shorts = fc.select_candidates(tickers, result, n_long=n_long,
-                                     n_short=n_short, min_groups_long=min_groups,
-                                     min_groups_short=min_groups)
 
-def _breakdown(tk):
-    i = tickers.index(tk)
-    d = {g: result["group_score"][g][i] for g in group_order}
-    d["sector"] = sectors[i]
-    return d
+# --- summary dashboard (all names) ------------------------------------------ #
+def build_summary():
+    recs = []
+    for tk in TICKERS:
+        s = stocks.get(tk)
+        if s is None or s.get("error"):
+            recs.append({"Ticker": tk, "Sector": s.get("sector") if s else "—",
+                         "Fair": None, "Price": s.get("price") if s else None,
+                         "MoS %": None, "Flags": "fetch failed"})
+            continue
+        auto, src = _seeded(s)
+        price = s.get("price")
+        if auto["r"] is None:
+            recs.append({"Ticker": tk, "Sector": s.get("sector"), "Fair": None,
+                         "Price": price, "MoS %": None, "Flags": "no WACC"})
+            continue
+        res = core.two_stage_dcf(_base_fcf(s), auto["g1"], auto["g2"], auto["gt"],
+                                 auto["r"], s.get("cash"), s.get("debt"), s.get("shares"))
+        if res.error:
+            recs.append({"Ticker": tk, "Sector": s.get("sector"), "Fair": None,
+                         "Price": price, "MoS %": None, "Flags": res.error})
+            continue
+        mos = (res.fair - price) / price * 100 if price else None
+        if mos is not None and abs(mos) > MOS_IMPLAUSIBLE:
+            recs.append({"Ticker": tk, "Sector": s.get("sector"), "Fair": None,
+                         "Price": price, "MoS %": None,
+                         "Flags": "implausible — likely data/units issue"})
+            continue
+        flags = "; ".join(res.flags + core.data_quality_flags(s)) or "—"
+        recs.append({"Ticker": tk, "Sector": s.get("sector"), "Fair": res.fair,
+                     "Price": price, "MoS %": mos, "Flags": flags})
+    return pd.DataFrame(recs)
 
-cL, cR = st.columns(2)
-with cL:
-    st.subheader("🟢 Long candidates")
-    dfl = pd.DataFrame([{"Ticker": t, "Composite": c, "Pct": p, **_breakdown(t)}
-                        for (t, c, p) in longs])
-    if not dfl.empty:
-        st.dataframe(dfl.style.format(
-            {"Composite": "{:+.2f}", "Pct": "{:.0f}"} |
-            {g: "{:+.2f}" for g in group_order}, na_rep="·")
-            .background_gradient(cmap="RdYlGn", subset=group_order, vmin=-2, vmax=2),
-            hide_index=True, width="stretch")
-with cR:
-    st.subheader("🔴 Short candidates")
-    dfs = pd.DataFrame([{"Ticker": t, "Composite": c, "Pct": p, **_breakdown(t)}
-                        for (t, c, p) in shorts])
-    if not dfs.empty:
-        st.dataframe(dfs.style.format(
-            {"Composite": "{:+.2f}", "Pct": "{:.0f}"} |
-            {g: "{:+.2f}" for g in group_order}, na_rep="·")
-            .background_gradient(cmap="RdYlGn_r", subset=group_order, vmin=-2, vmax=2),
-            hide_index=True, width="stretch")
 
-# ---- hand off to the risk page --------------------------------------------- #
-st.session_state["long_candidates"] = [t for (t, _, _) in longs]
-st.session_state["short_candidates"] = [t for (t, _, _) in shorts]
-st.session_state["factor_result"] = {
-    "tickers": tickers,
-    "composite": result["composite"].tolist(),
-    "grade": list(result["grade"]),
-    "sector": sectors,
-}
+summ = build_summary()
+n_valued = int(summ["MoS %"].notna().sum())
+st.subheader(f"Coverage — {n_valued} of {len(TICKERS)} names valued")
+st.caption("Financials and negative-FCF names show no DCF by design (FCF-based "
+           "valuation doesn't apply); they're excluded here, not broken.")
+
+# sort by MoS desc, undervalued first; Nones last
+summ_sorted = summ.sort_values("MoS %", ascending=False, na_position="last").reset_index(drop=True)
+styled = (summ_sorted.style
+          .format({"Fair": "${:,.2f}", "Price": "${:,.2f}", "MoS %": "{:+.1f}%"}, na_rep="—")
+          .background_gradient(cmap="RdYlGn", subset=["MoS %"], vmin=-60, vmax=120))
+st.dataframe(styled, hide_index=True, width="stretch", height=560,
+             column_config={"Flags": st.column_config.TextColumn(width="large")})
+
+# --- single-stock detail (picker-driven) ------------------------------------ #
+st.divider()
+st.subheader("Model a single stock")
+valid = [tk for tk in TICKERS if stocks.get(tk) and not stocks[tk].get("error")]
+pick = st.selectbox("Pick a ticker to model in detail", valid,
+                    index=0 if valid else None)
+
+if pick:
+    s = stocks[pick]
+    auto, src = _seeded(s)
+    base_fcf = _base_fcf(s)
+
+    for fld in ("g1", "g2", "gt", "r"):
+        key = f"{pick}_{fld}"
+        if key not in st.session_state:
+            v = auto[fld]
+            st.session_state[key] = round((v if v is not None else
+                                           (FALLBACK_G1 if fld == "g1" else 0.09)) * 100, 2)
+    fkey = f"{pick}_fcf"
+    if fkey not in st.session_state:
+        st.session_state[fkey] = round(base_fcf / 1e6, 1) if base_fcf else 0.0
+
+    st.markdown(f"**{pick}** · {s.get('sector') or '—'} · source: {s.get('source')} "
+                f"· g1 src: {src} · WACC: {'auto' if auto['r'] else 'fallback'}")
+    if s.get("missing"):
+        st.caption(f"⚠️ missing: {', '.join(s['missing'])}")
+
+    def m(x): return "—" if x is None else f"${x/1e6:,.0f}M"
+    sh = s.get("shares"); be = s.get("beta"); pr = s.get("price")
+    L, R = st.columns(2)
+    with L:
+        st.markdown("**Auto-filled data** (FCF editable)")
+        fcf_m = st.number_input("Free Cash Flow ($M)", key=fkey, step=100.0)
+        st.write(f"Shares: {'—' if sh is None else f'{sh/1e6:,.0f}M'}"
+                 f"  ·  Beta: {'—' if be is None else f'{be:.2f}'}")
+        st.write(f"Mkt cap: {m(s.get('market_cap'))}  ·  Cash: {m(s.get('cash'))}"
+                 f"  ·  Debt: {m(s.get('debt'))}")
+        st.write(f"Current price: {'—' if pr is None else f'${pr:,.2f}'}")
+    with R:
+        st.markdown("**Assumptions** (auto-seeded, editable)")
+        g1 = st.number_input("Yr 1–5 growth %", key=f"{pick}_g1", step=0.5)
+        g2 = st.number_input("Yr 6–10 growth %", key=f"{pick}_g2", step=0.5)
+        gt = st.number_input("Terminal growth %", key=f"{pick}_gt", step=0.25)
+        r = st.number_input("Discount rate (WACC) %", key=f"{pick}_r", step=0.25)
+
+    res = core.two_stage_dcf(fcf_m * 1e6, g1/100, g2/100, gt/100, r/100,
+                             s.get("cash"), s.get("debt"), s.get("shares"))
+    if res.error:
+        st.warning(res.error)
+    else:
+        cols = st.columns(3)
+        cols[0].metric("Fair value / share", f"${res.fair:,.2f}")
+        cols[1].metric("Current price", "—" if pr is None else f"${pr:,.2f}")
+        if pr:
+            mos = (res.fair - pr) / pr * 100
+            if abs(mos) > MOS_IMPLAUSIBLE:
+                cols[2].metric("Margin of safety", "n/a")
+                cols[2].caption("⚠️ implausible — likely data/units issue")
+            else:
+                badge = "under" if mos > 0 else "over"
+                cols[2].metric("Margin of safety", f"{mos:+.1f}%")
+                cols[2].markdown(f"<span class='badge {badge}'>"
+                                 f"{'Undervalued' if mos > 0 else 'Overvalued'}</span>",
+                                 unsafe_allow_html=True)
+        for f in res.flags + core.data_quality_flags(s):
+            st.caption(f"⚠️ {f}")
+        with st.expander("Projection detail"):
+            proj = pd.DataFrame(res.rows)
+            proj["FCF"] = (proj["FCF"] / 1e6).round(0)
+            proj["PV of FCF"] = (proj["PV of FCF"] / 1e6).round(0)
+            st.dataframe(proj, hide_index=True, width="stretch")
+            st.caption(f"PV(FCF) {m(res.pv_fcf_sum)} · PV(TV) {m(res.pv_tv)} "
+                       f"({res.tv_fraction:.0%} of EV) · EV {m(res.ev)} · "
+                       f"Equity {m(res.equity)}")
 
 st.divider()
-n_l, n_s = len(longs), len(shorts)
-st.success(f"Selected {n_l} longs / {n_s} shorts → open **Risk Report** to run "
-           "correlation, concentration, stress, VaR, sizing and hedges on this book.")
-st.caption("Selection is by composite rank with a minimum-evidence filter. It is "
-           "a screen, not a recommendation, and says nothing about position size "
-           "— that is the Risk Report's job.")
+st.caption("WACC = CAPM cost of equity · E/V + after-tax cost of debt · D/V. "
+           "Result is hypersensitive to WACC and terminal growth — one scenario, "
+           "not a price target. Verify fundamentals against SEC EDGAR filings.")

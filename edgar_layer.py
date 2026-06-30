@@ -1,80 +1,202 @@
-# CHANGES — reliability rewrite
+"""
+edgar_layer.py — fundamentals from SEC EDGAR's free XBRL API.
 
-Drop these files into your repo (they mirror your existing structure). Below is
-exactly what changed, what was deliberately left alone, and what you must verify
-before trusting numbers.
+WHY
+---
+yfinance scrapes Yahoo and gets throttled/blocked, worst of all on the
+datacenter IPs you actually deploy on. SEC EDGAR is the official primary source,
+is completely free with no API key, has no daily cap, and does NOT punish cloud
+IPs the way Yahoo does. The only requirements are a descriptive User-Agent with
+a real contact email and staying under ~10 requests/second.
 
-## What I did NOT touch (and why)
+This module returns the same scalar fundamentals the factor/DCF engine needs
+(revenue, net income, assets, equity, cash, debt, FCF series, EPS series),
+sourced from each company's most recent annual XBRL facts. It is OPT-IN: set
+USE_EDGAR=1 (or pass use_edgar=True in data_layer) to route fundamentals here.
 
-`dcf_core.py`, `factor_core.py`, `risk_core.py`, `Test_core.py`,
-`test_factor_risk.py`, `Config`, `.devcontainer/devcontainer.json`.
+CAVEATS (keep the honesty ledger honest)
+-----------------------------------------
+* US filers only. Foreign private issuers (TSM, ASML, HSBC, ARM) file 20-F and
+  are absent from us-gaap companyfacts — data_layer keeps Yahoo for those.
+* Companies tag inconsistently, so every concept has a fallback list. A missing
+  tag returns None and the factor engine reweights around it — never imputed.
+* This is NOT live-tested in the build sandbox (no network to data.sec.gov).
+  Run edgar_smoke_test() on your machine before trusting the numbers.
 
-These are pure, tested, network-free math (Ledoit-Wolf shrinkage, Euler risk
-decomposition, rank-normal factor pipeline). Rewriting correct, tested code adds
-risk and removes nothing. The reliability problem was entirely in the data/app
-layer. **Both offline test suites still pass unchanged** after the rewrite.
+REQUIRED: set a real contact email in USER_AGENT below or EDGAR returns 403.
+"""
+from __future__ import annotations
 
-## Files REWRITTEN
+import os
+import time
 
-| File | What changed |
-|------|--------------|
-| `universe.py` | De-duplicated (was ~160 entries / ~45 unique → **40 unique**). `BRK.B`→`BRK-B`. Dropped invalid `SPCX`. Now the single shared ticker list + theme + freshness CSS. |
-| `data_layer.py` | Per-ticker fundamentals **disk-cached**; all Yahoo calls via the shared backoff session; `MAX_WORKERS` 8→2; optional EDGAR fundamentals + Stooq price fallback; the two weakest scrapes (holders/insider) off by default; added `_source_fund` provenance + `source_mix`. **Row schema unchanged** — the factor/risk engines consume it identically. |
-| `App.py` | Shares the universe; per-ticker fetch disk-cached + session-memoized; hardened session; `MAX_WORKERS` 8→3; `use_container_width`→`width="stretch"`; freshness line in header; Refresh button now also clears the disk cache. |
-| `pages/2_factor_analysis.py` | `width="stretch"` fix; freshness + source-provenance banner; empty-returns guard. |
-| `pages/3_risk_report.py` | `width="stretch"` fix; provenance caption; empty-data guard (`st.stop()`). |
-| `requirements.txt` | Added `curl_cffi`, `requests`, `pandas-datareader`, `pyarrow`; pinned `yfinance>=0.2.65`. |
+import requests
 
-## Files ADDED
+import cache_layer as kv
 
-| File | Purpose |
-|------|---------|
-| `cache_layer.py` | Disk-persistent, daily-TTL cache shared by every page. **This is what makes 100 opens/day survivable** — survives restarts, unlike `st.cache_data`. |
-| `net_layer.py` | One shared `curl_cffi` chrome-impersonating session + exponential-backoff-on-429 wrapper. Graceful fallback if `curl_cffi` is absent. |
-| `edgar_layer.py` | SEC EDGAR fundamentals (free, official, no key, cloud-IP-friendly). **Opt-in.** |
-| `fetch_snapshot.py` | Batch refresh for the scheduled job; populates the disk cache. |
-| `.github/workflows/refresh.yml` | Scheduled GitHub Action: fetch a few times/day, commit `.cache/`, so the app reads pre-fetched files and makes **zero** live calls. |
-| `.gitignore` | Ignores `__pycache__`; deliberately does NOT ignore `.cache/` (the Action commits it). |
+# Contact email baked in (EDGAR 403s blank/placeholder UAs). Override per-env
+# with EDGAR_USER_AGENT if you ever want a different identity.
+USER_AGENT = os.environ.get(
+    "EDGAR_USER_AGENT", "Sentry akhamlin008@gmail.com"
+)
+HEADERS = {"User-Agent": USER_AGENT, "Accept-Encoding": "gzip, deflate"}
+BASE = "https://data.sec.gov"
+MIN_INTERVAL = 0.12  # ~8 req/s, under the 10 req/s SEC limit
+_last_call = [0.0]
 
-## Default behavior (conservative)
 
-Out of the box the app behaves like your original **plus** disk caching, backoff,
-lower concurrency, and the two weakest factors off — i.e. it still uses Yahoo,
-so nothing new can break. The bigger wins are opt-in via env vars:
+def _throttle():
+    dt = time.time() - _last_call[0]
+    if dt < MIN_INTERVAL:
+        time.sleep(MIN_INTERVAL - dt)
+    _last_call[0] = time.time()
 
-```bash
-USE_EDGAR=1                       # route US fundamentals to SEC EDGAR
-EDGAR_USER_AGENT="You you@email"  # REQUIRED for EDGAR or it 403s
-INCLUDE_HOLDERS_INSIDER=1         # re-enable the weak institutional/insider scrapes
-DCF_CACHE_DIR=.cache              # where the cache lives (default .cache)
-```
 
-## ⚠️ What you MUST verify before trusting numbers (I could not test these here)
+# --------------------------------------------------------------------------- #
+# ticker -> CIK
+# --------------------------------------------------------------------------- #
+def cik_map() -> dict:
+    # Prefer the CIKs baked into the universe CSV (no network needed). Fall back
+    # to the SEC's company_tickers.json only for names not in the universe.
+    try:
+        from universe import CIKS as _BAKED
+    except Exception:
+        _BAKED = {}
+    cached = kv.get("edgar:cik_map", max_age_sec=7 * kv.DAY)
+    if cached:
+        merged = dict(cached)
+        merged.update(_BAKED)
+        return merged
+    if _BAKED:
+        # Universe CIKs are enough for the S&P 500 universe; avoid the network.
+        return dict(_BAKED)
+    _throttle()
+    r = requests.get("https://www.sec.gov/files/company_tickers.json",
+                     headers=HEADERS, timeout=30)
+    r.raise_for_status()
+    m = {}
+    for row in r.json().values():
+        m[row["ticker"].upper()] = f'{int(row["cik_str"]):010d}'
+    kv.put("edgar:cik_map", m)
+    return m
 
-My build sandbox can reach PyPI/GitHub but **not** `data.sec.gov`, Stooq, or
-Yahoo, so the network paths are written-and-logic-tested but **not live-tested**:
 
-1. **EDGAR.** Set a real `EDGAR_USER_AGENT` email, then run
-   `python edgar_layer.py` (calls `edgar_smoke_test()`). Confirm AAPL returns
-   sane revenue/FCF. The XBRL tag fallback lists in `edgar_layer.py` may need
-   tuning per company. EDGAR is **US filers only** — `TSM/ASML/HSBC/ARM` stay on
-   Yahoo automatically (`NON_US_EDGAR` in `universe.py`).
-2. **Stooq fallback.** Verify your tickers resolve on Stooq (symbol/suffix
-   coverage differs from Yahoo). It only triggers if the Yahoo batch download
-   fails.
-3. **The Action.** Put your email in `refresh.yml`, enable Actions, run it once
-   via "Run workflow", confirm it commits `.cache/`. (Actions is free for public
-   repos; check current minutes for private.)
-4. **Spot-check valuations** for 2–3 names against the 10-K, exactly as your own
-   disclaimers already say.
+# --------------------------------------------------------------------------- #
+# companyfacts
+# --------------------------------------------------------------------------- #
+def company_facts(ticker: str):
+    key = f"edgar:facts:{ticker.upper()}"
+    cached = kv.get(key)
+    if cached is not None:
+        return cached
+    cik = cik_map().get(ticker.upper())
+    if not cik:
+        return None
+    _throttle()
+    r = requests.get(f"{BASE}/api/xbrl/companyfacts/CIK{cik}.json",
+                     headers=HEADERS, timeout=30)
+    if r.status_code != 200:
+        return None
+    facts = r.json()
+    kv.put(key, facts)
+    return facts
 
-## Suggested order of attack
 
-1. Replace the files, `pip install -r requirements.txt`, run as-is (de-dup +
-   disk cache + backoff already make heavy daily use survivable).
-2. Set `EDGAR_USER_AGENT`, run the EDGAR smoke test, then flip `USE_EDGAR=1`.
-3. Wire up the Action; once `.cache/` is committed, the live app stops calling
-   Yahoo entirely.
+# --------------------------------------------------------------------------- #
+# fact extraction
+# --------------------------------------------------------------------------- #
+def _annual_series(facts, *tags, taxonomy="us-gaap", unit="USD"):
+    """Oldest->newest list of distinct fiscal-year annual values for the first
+    matching tag. Dedupes by fiscal year (keeps the latest filing's value)."""
+    if not facts:
+        return []
+    for tag in tags:
+        try:
+            units = facts["facts"][taxonomy][tag]["units"][unit]
+        except (KeyError, TypeError):
+            continue
+        annual = {}
+        for u in units:
+            form = (u.get("form") or "")
+            fp = u.get("fp")
+            fy = u.get("fy")
+            if fy is None:
+                continue
+            # annual figures: 10-K / 20-F full-year (fp == 'FY')
+            if fp == "FY" and ("10-K" in form or "20-F" in form):
+                annual[fy] = float(u["val"])
+        if annual:
+            return [annual[fy] for fy in sorted(annual)]
+    return []
 
-All offline tests pass; `python Test_core.py` and `python test_factor_risk.py`
-to confirm on your end.
+
+def _latest(facts, *tags, **kw):
+    s = _annual_series(facts, *tags, **kw)
+    return s[-1] if s else None
+
+
+def fundamentals(ticker: str) -> dict:
+    """Return the scalar fundamentals data_layer needs, from EDGAR. Keys mirror
+    what fetch_one already produces so the factor/DCF engine is unaffected.
+    Missing concepts are None (reweighted downstream, never imputed)."""
+    f = company_facts(ticker)
+    out = {"ticker": ticker.upper(), "_source_fund": "edgar", "error": None}
+    if f is None:
+        out["error"] = "edgar: no companyfacts (non-US filer or unknown CIK)"
+        return out
+
+    revenue = _latest(
+        f, "Revenues", "RevenueFromContractWithCustomerExcludingAssessedTax",
+        "RevenueFromContractWithCustomerIncludingAssessedTax", "SalesRevenueNet")
+    rev_series = _annual_series(
+        f, "Revenues", "RevenueFromContractWithCustomerExcludingAssessedTax",
+        "RevenueFromContractWithCustomerIncludingAssessedTax", "SalesRevenueNet")
+    net_income = _latest(f, "NetIncomeLoss",
+                         "ProfitLoss", "NetIncomeLossAvailableToCommonStockholdersBasic")
+    gross = _latest(f, "GrossProfit")
+    ebit = _latest(f, "OperatingIncomeLoss")
+    assets = _latest(f, "Assets")
+    equity = _latest(f, "StockholdersEquity",
+                     "StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest")
+    cash = _latest(f, "CashCashEquivalentsRestrictedCashAndRestrictedCashEquivalents",
+                   "CashAndCashEquivalentsAtCarryingValue")
+    debt_lt = _latest(f, "LongTermDebtNoncurrent", "LongTermDebt") or 0.0
+    debt_st = _latest(f, "DebtCurrent", "ShortTermBorrowings") or 0.0
+    debt = (debt_lt + debt_st) or None
+    interest = _latest(f, "InterestExpense", "InterestExpenseDebt")
+    cfo = _latest(f, "NetCashProvidedByUsedInOperatingActivities")
+    cfo_series = _annual_series(f, "NetCashProvidedByUsedInOperatingActivities")
+    capex_series = _annual_series(f, "PaymentsToAcquirePropertyPlantAndEquipment")
+    eps_series = _annual_series(f, "EarningsPerShareDiluted", "EarningsPerShareBasic",
+                                unit="USD/shares")
+
+    # FCF series = OCF - CapEx, aligned by position (both oldest->newest)
+    fcf_series = []
+    if cfo_series and capex_series:
+        k = min(len(cfo_series), len(capex_series))
+        fcf_series = [cfo_series[-k + i] - capex_series[-k + i] for i in range(k)]
+    fcf = fcf_series[-1] if fcf_series else None
+
+    out.update({
+        "_revenue": revenue, "_net_income": net_income, "_gross": gross,
+        "_ebit": ebit, "_assets": assets, "_equity": equity, "_cash": cash,
+        "_debt": debt, "_interest": interest, "_cfo": cfo,
+        "_fcf": fcf, "fcf_series": fcf_series,
+        "rev_series": rev_series, "eps_series": eps_series,
+    })
+    return out
+
+
+def edgar_smoke_test(ticker="AAPL"):
+    """Run on a networked machine to sanity-check EDGAR access + parsing."""
+    print(f"User-Agent: {USER_AGENT}")
+    m = cik_map()
+    print(f"CIK map entries: {len(m)}; {ticker} -> {m.get(ticker)}")
+    fund = fundamentals(ticker)
+    for k, v in fund.items():
+        print(f"  {k}: {v}")
+    return fund
+
+
+if __name__ == "__main__":
+    edgar_smoke_test()
