@@ -1,0 +1,39 @@
+name: paper-trade
+
+on:
+  schedule:
+    - cron: "35 14 1-5 * *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+concurrency:
+  group: paper-trade
+  cancel-in-progress: false
+
+jobs:
+  trade:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - run: pip install alpaca-py
+      - name: Run paper trader
+        env:
+          ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
+          ALPACA_SECRET_KEY: ${{ secrets.ALPACA_SECRET_KEY }}
+          LIVE_PAPER: "0"
+          USE_EDGAR: "1"
+          EDGAR_USER_AGENT: "Sentry akhamlin008@gmail.com"
+          DCF_CACHE_DIR: ".cache"
+        run: python paper_trader.py
+      - name: Persist cache + monthly marker
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "chore: paper-trade run"
+          file_pattern: ".cache/** state/**"
