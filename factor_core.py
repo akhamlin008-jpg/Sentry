@@ -1,326 +1,548 @@
 """
-factor_core.py — pure cross-sectional factor math. No streamlit / yfinance /
-network, so it unit-tests offline exactly like dcf_core.py.
+data_layer.py — the ONLY module besides App.py that touches market data. Turns
+raw financials into the metric scalars factor_core expects, plus a daily returns
+matrix and a 10y-yield change series for risk_core.
 
-Pipeline (per raw metric, ACROSS the universe at one point in time):
-    raw x_i  ->  winsorize  ->  standardize (z or rank-normal)  ->  sign by
-    direction  ->  (optional) sector-neutralize  ->  combine within group
-    ->  weight groups into a composite  ->  re-standardize  ->  percentile/grade
+WHAT CHANGED FOR RELIABILITY (vs the original)
+----------------------------------------------
+1. DISK CACHE: per-ticker fundamentals are cached on disk (cache_layer), so 100
+   app opens/day = at most one live fetch per ticker per day, and the cache
+   survives Codespaces/app restarts. This is the change that actually delivers
+   "runs reliably even used 100x/day."
+2. SHARED HARDENED SESSION + BACKOFF: every Yahoo call goes through net_layer
+   (curl_cffi chrome impersonation + exponential backoff on 429).
+3. LOW CONCURRENCY: MAX_WORKERS dropped 8 -> 2. Concurrency is what trips the
+   limiter on datacenter IPs.
+4. DROPPED THE WEAKEST SCRAPES BY DEFAULT: major_holders (institutional) and
+   insider_transactions are off unless INCLUDE_HOLDERS_INSIDER=1. Your own
+   honesty ledger flags these as the least reliable factors; the engine
+   reweights around the resulting Nones.
+5. OPTIONAL EDGAR FUNDAMENTALS: set USE_EDGAR=1 to source value/quality/growth
+   inputs from SEC EDGAR (official, free, cloud-IP-friendly) for US filers,
+   falling back to Yahoo for ADRs. Off by default so behavior is unchanged
+   until you opt in and test.
+6. STOOQ PRICE FALLBACK: if the batched Yahoo price download fails/empties, the
+   returns matrix is rebuilt from Stooq (free, no key).
 
-Why rank-normal is the DEFAULT, not classic z:
-    Financial cross-sections are heavy-tailed and contain sign-flipping ratios
-    (a near-zero denominator makes EV/EBIT explode). A mean/std z-score lets one
-    such outlier dominate the whole factor. The rank-based inverse-normal
-    transform (a.k.a. "normal scores") depends only on ordering, so it is
-    immune to that, at the cost of discarding magnitude. Both are provided;
-    pick per use-case.
-
-Missing data is handled by REWEIGHTING, never by imputing 0. Imputing the
-cross-sectional mean (z=0) silently asserts "this stock is exactly average on
-the factor we couldn't measure" — a real, directional lie. Reweighting the
-factors we DID measure is the honest choice and is what `composite()` does.
-
-All public functions are nan-safe. Inputs are 1-D array-likes aligned to a
-fixed ticker order the caller controls.
+DATA-HONESTY LEDGER (unchanged in spirit)
+-----------------------------------------
+yfinance is unofficial scraped data; reliability is NOT uniform across factors.
+Value/quality/growth/momentum/DCF are statement- or price-derived and solid;
+short_interest/institutional/insider are stale/often-missing scrapes that are
+down-weighted per name. Geographic revenue is NOT available — only HQ country /
+reporting currency, labeled as a proxy. Each row carries a per-factor
+`availability` map and now a `_source_fund` provenance tag.
 """
 from __future__ import annotations
 
+import datetime as dt
+import hashlib
+import os
+from concurrent.futures import ThreadPoolExecutor
+
 import numpy as np
-from math import erf, sqrt
+import pandas as pd
+import yfinance as yf
+
+import dcf_core as core
+import cache_layer as kv
+import net_layer as nl
+
+try:
+    import edgar_layer as edgar
+except Exception:  # edgar_layer optional
+    edgar = None
 
 # --------------------------------------------------------------------------- #
-# Standardization primitives
+# config
 # --------------------------------------------------------------------------- #
+BENCHMARK = "SPY"
+RATE_TICKER = "^TNX"
+PRICE_LOOKBACK = "3y"
+MAX_WORKERS = 2                  # was 8
+DEFAULT_ERP = 0.045
+DEFAULT_RF = 0.043
+DEFAULT_TERMINAL = 0.025
+CAGR_CAP = (-0.10, 0.25)
+FALLBACK_G1 = 0.10
+FUND_TTL = kv.DAY               # fundamentals refresh at most daily
+PRICE_TTL = 12 * 3600          # prices refresh at most twice daily
 
-def _as_float(x):
-    a = np.asarray(x, dtype="float64")
-    return a
+TRADING_DAYS = 252
+MOM_SKIP = 21
+MOM_12 = 252
+MOM_6 = 126
 
-def winsorize(x, lo=0.02, hi=0.98):
-    """Clip to the [lo, hi] empirical quantiles (nan-ignoring). Caps the
-    influence of extreme observations BEFORE standardizing so a single bad
-    data point can't set the scale for everyone."""
-    a = _as_float(x).copy()
-    m = np.isfinite(a)
-    if m.sum() < 3:
-        return a
-    ql, qh = np.nanquantile(a[m], [lo, hi])
-    a[m] = np.clip(a[m], ql, qh)
-    return a
+# EDGAR on by default now that a real contact email is configured (edgar_layer).
+# US filers -> SEC EDGAR (official, cloud-IP-friendly); ADRs and any EDGAR miss
+# fall back to Yahoo automatically, per name. Set USE_EDGAR=0 to force Yahoo.
+INCLUDE_HOLDERS_INSIDER = os.environ.get("INCLUDE_HOLDERS_INSIDER", "0") == "1"
+USE_EDGAR = os.environ.get("USE_EDGAR", "1") == "1"
 
-def zscore(x, robust=True):
-    """Cross-sectional standardization, nan-preserving.
+try:
+    from universe import NON_US_EDGAR, SECTORS as _SECTORS
+except Exception:
+    NON_US_EDGAR = set()
+    _SECTORS = {}
 
-    robust=True : (x - median) / (1.4826 * MAD)  — 1.4826 makes MAD a
-                  consistent estimator of sigma under normality, so the unit
-                  matches a classic z while resisting outliers.
-    robust=False: (x - mean) / std (population, ddof=0).
-    Returns all-zeros (not nan) for a degenerate (zero-spread) factor so it
-    contributes nothing rather than poisoning the composite with nan.
-    """
-    a = _as_float(x)
-    m = np.isfinite(a)
-    out = np.full_like(a, np.nan)
-    if m.sum() < 2:
-        return out
-    v = a[m]
-    if robust:
-        med = np.median(v)
-        mad = np.median(np.abs(v - med))
-        scale = 1.4826 * mad
-        if scale <= 0:                      # all identical (or near) -> no signal
-            out[m] = 0.0
-            return out
-        out[m] = (v - med) / scale
+
+# --------------------------------------------------------------------------- #
+# statement helpers (tolerant of yfinance row-name drift)
+# --------------------------------------------------------------------------- #
+def _val(df, *names):
+    if df is None or getattr(df, "empty", True):
+        return None
+    for name in names:
+        if name in df.index:
+            s = df.loc[name].dropna()
+            if not s.empty:
+                return float(s.iloc[0])
+    return None
+
+
+def _series_oldest_first(df, *names):
+    if df is None or getattr(df, "empty", True):
+        return []
+    for name in names:
+        if name in df.index:
+            s = df.loc[name].dropna()
+            if not s.empty:
+                return [float(v) for v in s.iloc[::-1].tolist()]
+    return []
+
+
+def _fcf_series(cf):
+    if cf is None or getattr(cf, "empty", True):
+        return []
+    if "Free Cash Flow" in cf.index:
+        s = cf.loc["Free Cash Flow"].dropna()
     else:
-        mu = v.mean()
-        sd = v.std(ddof=0)
-        if sd <= 0:
-            out[m] = 0.0
-            return out
-        out[m] = (v - mu) / sd
-    return out
+        ocf = next((n for n in ("Operating Cash Flow",
+                                "Total Cash From Operating Activities")
+                    if n in cf.index), None)
+        cx = next((n for n in ("Capital Expenditure", "Capital Expenditures")
+                   if n in cf.index), None)
+        if not (ocf and cx):
+            return []
+        s = (cf.loc[ocf] + cf.loc[cx]).dropna()
+    return [float(v) for v in s.iloc[::-1].tolist()]
 
-def rank_to_normal(x):
-    """Rank-based inverse-normal scores. Ranks the finite values to
-    p_i = (rank - 0.5)/n (Blom-style, plotting-position), then applies the
-    inverse standard-normal CDF. Output is ~N(0,1), order-preserving, and
-    completely outlier-insensitive. nan stays nan."""
-    a = _as_float(x)
-    m = np.isfinite(a)
-    out = np.full_like(a, np.nan)
-    n = int(m.sum())
-    if n < 2:
-        return out
-    v = a[m]
-    order = np.argsort(np.argsort(v))            # 0..n-1 ranks, ties broken stably
-    p = (order + 0.5) / n
-    out[m] = np.array([_norm_ppf(pi) for pi in p])
-    return out
 
-def standardize(x, method="rank", winsor=(0.02, 0.98)):
-    """Dispatch: 'rank' -> rank_to_normal, 'z' -> robust z, 'zmean' -> mean/std z.
-    Winsorization is applied before the mean/std variants (it is a no-op for
-    rank, which already ignores magnitude)."""
-    if method == "rank":
-        return rank_to_normal(x)
-    xw = winsorize(x, *winsor) if winsor else x
-    if method == "z":
-        return zscore(xw, robust=True)
-    if method == "zmean":
-        return zscore(xw, robust=False)
-    raise ValueError(f"unknown standardize method {method!r}")
+def _cagr(series):
+    vals = [v for v in series if v is not None]
+    if len(vals) < 2 or any(v <= 0 for v in vals):
+        if len(vals) >= 2 and vals[0] > 0 and vals[-1] > 0:
+            yrs = len(vals) - 1
+            return (vals[-1] / vals[0]) ** (1 / yrs) - 1
+        return None
+    return core.robust_cagr(vals, cap=(-10, 10))
 
-def sector_neutralize(z, sectors):
-    """Subtract the sector mean from each standardized score so the factor
-    expresses INTRA-sector ranking only (a cheap stock vs cheap sector are
-    different bets). Sectors with <2 members are left unchanged (no reliable
-    group mean). nan-safe."""
-    z = _as_float(z).copy()
-    sectors = np.asarray(sectors, dtype=object)
-    for s in set(sectors.tolist()):
-        idx = np.where(sectors == s)[0]
-        vals = z[idx]
-        fin = np.isfinite(vals)
-        if fin.sum() >= 2:
-            z[idx[fin]] = vals[fin] - vals[fin].mean()
-    return z
 
 # --------------------------------------------------------------------------- #
-# Group + composite assembly
+# per-ticker fetch (disk-cached) -> raw metric scalars
 # --------------------------------------------------------------------------- #
+def fetch_one(ticker: str) -> dict:
+    """Disk-cached wrapper. Serves a fresh on-disk row when available; otherwise
+    fetches live and caches the result. This is the request-count bottleneck, so
+    caching it here is what makes heavy daily use survivable."""
+    key = f"fund:{ticker}:{int(USE_EDGAR)}:{int(INCLUDE_HOLDERS_INSIDER)}"
+    cached = kv.get(key, max_age_sec=FUND_TTL)
+    if cached is not None:
+        return cached
+    row = _fetch_one_live(ticker)
+    if not row.get("error"):
+        kv.put(key, row)
+    return row
 
-# Each group lists (metric_key, direction). direction = +1 if higher raw value
-# is "better" (more attractive for a LONG), -1 if lower is better. The DCF
-# margin-of-safety enters here as just another factor ("dcf"), so the existing
-# engine is one input among several rather than the whole verdict.
-GROUP_METRICS = {
-    "value":          [("fcf_yield", +1), ("ebit_ev", +1),
-                       ("earnings_yield", +1), ("sales_ev", +1)],
-    "quality":        [("gross_margin", +1), ("op_margin", +1),
-                       ("roe", +1), ("roa", +1),
-                       ("debt_to_equity", -1), ("interest_coverage", +1),
-                       ("accruals", -1)],
-    "growth":         [("rev_cagr", +1), ("fcf_cagr", +1), ("eps_cagr", +1)],
-    "momentum":       [("mom_12_1", +1), ("mom_6_1", +1)],
-    "short_interest": [("short_pct_float", -1), ("days_to_cover", -1)],
-    "insider":        [("insider_net_ratio", +1)],
-    "institutional":  [("inst_own_pct", +1)],
-    "dcf":            [("mos", +1)],
-}
 
-DEFAULT_GROUP_WEIGHTS = {
-    # Five live factors (free, reliable at 500 names via EDGAR + Stooq), summing
-    # to 1.0. The three sentiment/positioning factors below have no free bulk
-    # source at scale, so they are weighted 0 — composite() reweights over the
-    # live factors automatically, so this is a clean drop, not a hack.
-    "value": 0.25, "quality": 0.25, "growth": 0.20, "momentum": 0.15, "dcf": 0.15,
-    "short_interest": 0.0, "insider": 0.0, "institutional": 0.0,
-}
-
-def standardize_group(rows, group, method="rank", winsor=(0.02, 0.98),
-                      sectors=None, neutralize=False):
-    """Standardize every sub-metric of one group across the universe, sign it
-    by direction, optionally sector-neutralize, then average the available
-    sub-metrics per name (nan-safe). Returns (group_score[N], coverage[N]) where
-    coverage is the fraction of the group's sub-metrics that were observable for
-    that name — propagated so the caller can flag thin evidence."""
-    specs = GROUP_METRICS[group]
-    N = len(rows)
-    stacked, signs = [], []
-    for key, direction in specs:
-        raw = np.array([_get(r, key) for r in rows], dtype="float64")
-        if np.isfinite(raw).sum() < 2:           # metric unusable in this universe
-            continue
-        z = standardize(raw, method=method, winsor=winsor) * direction
-        if neutralize and sectors is not None:
-            z = sector_neutralize(z, sectors)
-        stacked.append(z)
-        signs.append(direction)
-    if not stacked:
-        return np.full(N, np.nan), np.zeros(N)
-    M = np.vstack(stacked)                         # (k_used, N)
-    score = np.nanmean(M, axis=0)
-    coverage = np.isfinite(M).mean(axis=0)
-    return score, coverage
-
-def composite(group_scores, weights):
-    """Weight standardized group scores into one composite, REWEIGHTING over
-    the groups actually present for each name (missing groups dropped, surviving
-    weights renormalized to sum to 1). Names with zero observable groups -> nan.
-    `group_scores`: dict group -> array[N]. `weights`: dict group -> float."""
-    groups = [g for g in group_scores if g in weights and weights[g] > 0]
-    if not groups:
-        N = len(next(iter(group_scores.values())))
-        return np.full(N, np.nan)
-    M = np.vstack([group_scores[g] for g in groups])      # (G, N)
-    w = np.array([weights[g] for g in groups], dtype="float64")[:, None]
-    present = np.isfinite(M)
-    wmat = np.where(present, w, 0.0)
-    wsum = wmat.sum(axis=0)
-    num = np.nansum(np.where(present, M, 0.0) * wmat, axis=0)
-    out = np.where(wsum > 0, num / np.where(wsum > 0, wsum, 1.0), np.nan)
-    return out
-
-def percentile_and_grade(score):
-    """Cross-sectional percentile (0-100) of the composite and a letter grade.
-    Percentile is rank-based so it is well-defined even if the composite is
-    skewed. nan -> (nan, 'NR')."""
-    a = _as_float(score)
-    m = np.isfinite(a)
-    pct = np.full_like(a, np.nan)
-    n = int(m.sum())
-    if n >= 1:
-        order = np.argsort(np.argsort(a[m]))
-        pct[m] = (order + 0.5) / n * 100.0
-    grades = np.array(["NR"] * len(a), dtype=object)
-    bands = [(90, "A+"), (80, "A"), (65, "B"), (45, "C"), (25, "D"), (-1, "F")]
-    for i in range(len(a)):
-        if not np.isfinite(pct[i]):
-            continue
-        for thr, g in bands:
-            if pct[i] >= thr:
-                grades[i] = g
-                break
-    return pct, grades
-
-def score_universe(rows, weights=None, method="rank", winsor=(0.02, 0.98),
-                   neutralize=False, sector_key="sector"):
-    """End-to-end. `rows` is a list of per-ticker dicts holding the RAW metric
-    keys referenced in GROUP_METRICS (computed upstream in the data layer).
-    Returns a dict of arrays aligned to `rows` order:
-        per-group scores, per-group coverage, composite (re-standardized),
-        percentile, grade.
-    The composite is re-standardized with the SAME `method` so it reads on a
-    clean cross-sectional scale regardless of how many groups survived."""
-    weights = weights or DEFAULT_GROUP_WEIGHTS
-    sectors = [r.get(sector_key) for r in rows] if neutralize else None
-    out = {"group_score": {}, "group_cov": {}}
-    for g in GROUP_METRICS:
-        s, cov = standardize_group(rows, g, method=method, winsor=winsor,
-                                   sectors=sectors, neutralize=neutralize)
-        out["group_score"][g] = s
-        out["group_cov"][g] = cov
-    comp_raw = composite(out["group_score"], weights)
-    comp = standardize(comp_raw, method=method, winsor=winsor)
-    pct, grade = percentile_and_grade(comp)
-    out["composite_raw"] = comp_raw
-    out["composite"] = comp
-    out["percentile"] = pct
-    out["grade"] = grade
-    return out
-
-# --------------------------------------------------------------------------- #
-# Long / short selection
-# --------------------------------------------------------------------------- #
-
-def select_candidates(tickers, result, n_long=10, n_short=10,
-                      min_groups_long=3, min_groups_short=3, group_cov=None):
-    """Top names by composite -> longs, bottom -> shorts, but only if enough
-    groups were actually observed for that name (thin-evidence names are
-    excluded rather than ranked on one lucky factor). Returns (longs, shorts)
-    as lists of (ticker, composite, percentile) sorted by conviction."""
-    comp = result["composite"]
-    pct = result["percentile"]
-    if group_cov is None:
-        group_cov = result["group_cov"]
-    # count groups with a finite score per name
-    gmat = np.vstack([result["group_score"][g] for g in GROUP_METRICS])
-    n_groups = np.isfinite(gmat).sum(axis=0)
-    rec = []
-    for i, tk in enumerate(tickers):
-        if not np.isfinite(comp[i]):
-            continue
-        rec.append((tk, float(comp[i]), float(pct[i]), int(n_groups[i])))
-    longs = sorted([r for r in rec if r[3] >= min_groups_long],
-                   key=lambda r: r[1], reverse=True)[:n_long]
-    shorts = sorted([r for r in rec if r[3] >= min_groups_short],
-                    key=lambda r: r[1])[:n_short]
-    fmt = lambda lst: [(t, c, p) for (t, c, p, _) in lst]
-    return fmt(longs), fmt(shorts)
-
-# --------------------------------------------------------------------------- #
-# small helpers
-# --------------------------------------------------------------------------- #
-
-def _get(row, key):
-    v = row.get(key)
-    if v is None:
-        return np.nan
+def _fetch_one_live(ticker: str) -> dict:
+    row = {"ticker": ticker, "avail": {}, "error": None, "_source_fund": "yahoo"}
+    ef = None
     try:
-        f = float(v)
-        return f if np.isfinite(f) else np.nan
-    except (TypeError, ValueError):
-        return np.nan
+        t = nl.ticker(ticker, yf)
 
-def _norm_cdf(x):
-    return 0.5 * (1.0 + erf(x / sqrt(2.0)))
+        use_edgar_here = (USE_EDGAR and edgar is not None
+                          and ticker.upper() not in NON_US_EDGAR)
+        cf = bs = inc = None
+        if not use_edgar_here:
+            cf = nl.with_backoff(lambda: getattr(t, "cashflow", None))
+            bs = nl.with_backoff(lambda: getattr(t, "balance_sheet", None))
+            inc = nl.with_backoff(lambda: getattr(t, "income_stmt", None))
 
-def _norm_ppf(p):
-    """Acklam's rational approximation to the inverse normal CDF.
-    |error| < 1.15e-9 over (0,1). Avoids a scipy dependency in the math core."""
-    if p <= 0.0:
-        return -np.inf
-    if p >= 1.0:
-        return np.inf
-    a = [-3.969683028665376e+01, 2.209460984245205e+02, -2.759285104469687e+02,
-         1.383577518672690e+02, -3.066479806614716e+01, 2.506628277459239e+00]
-    b = [-5.447609879822406e+01, 1.615858368580409e+02, -1.556989798598866e+02,
-         6.680131188771972e+01, -1.328068155288572e+01]
-    c = [-7.784894002430293e-03, -3.223964580411365e-01, -2.400758277161838e+00,
-         -2.549732539343734e+00, 4.374664141464968e+00, 2.938163982698783e+00]
-    d = [7.784695709041462e-03, 3.224671290700398e-01, 2.445134137142996e+00,
-         3.754408661907416e+00]
-    plow, phigh = 0.02425, 1 - 0.02425
-    if p < plow:
-        q = sqrt(-2 * np.log(p))
-        return (((((c[0]*q+c[1])*q+c[2])*q+c[3])*q+c[4])*q+c[5]) / \
-               ((((d[0]*q+d[1])*q+d[2])*q+d[3])*q+1)
-    if p > phigh:
-        q = sqrt(-2 * np.log(1 - p))
-        return -(((((c[0]*q+c[1])*q+c[2])*q+c[3])*q+c[4])*q+c[5]) / \
-                ((((d[0]*q+d[1])*q+d[2])*q+d[3])*q+1)
-    q = p - 0.5
-    r = q * q
-    return (((((a[0]*r+a[1])*r+a[2])*r+a[3])*r+a[4])*r+a[5])*q / \
-           (((((b[0]*r+b[1])*r+b[2])*r+b[3])*r+b[4])*r+1)
+        fi = getattr(t, "fast_info", {}) or {}
+
+        def fival(*keys):
+            for k in keys:
+                v = fi.get(k) if hasattr(fi, "get") else None
+                if v:
+                    return float(v)
+            return None
+
+        price = fival("last_price", "lastPrice")
+        mktcap = fival("market_cap", "marketCap")
+        shares = fival("shares", "shares_outstanding")
+        if shares is None and mktcap and price:
+            shares = mktcap / price
+
+        if use_edgar_here:
+            ef = edgar.fundamentals(ticker)
+            if ef.get("error"):
+                use_edgar_here = False
+                cf = nl.with_backoff(lambda: getattr(t, "cashflow", None))
+                bs = nl.with_backoff(lambda: getattr(t, "balance_sheet", None))
+                inc = nl.with_backoff(lambda: getattr(t, "income_stmt", None))
+            else:
+                row["_source_fund"] = "edgar"
+
+        if row["_source_fund"] == "edgar":
+            fcf_series = ef.get("fcf_series") or []
+            fcf = ef.get("_fcf")
+            cash = ef.get("_cash")
+            debt = ef.get("_debt")
+            revenue = ef.get("_revenue")
+            gross = ef.get("_gross")
+            ebit = ef.get("_ebit")
+            net_income = ef.get("_net_income")
+            interest = ef.get("_interest")
+            equity = ef.get("_equity")
+            assets = ef.get("_assets")
+            cfo = ef.get("_cfo")
+            rev_series = ef.get("rev_series") or []
+            eps_series = ef.get("eps_series") or []
+        else:
+            fcf_series = _fcf_series(cf)
+            fcf = fcf_series[-1] if fcf_series else None
+            cash = _val(bs, "Cash Cash Equivalents And Short Term Investments",
+                        "Cash And Cash Equivalents And Short Term Investments",
+                        "Cash And Cash Equivalents")
+            debt = _val(bs, "Total Debt")
+            if debt is None:
+                ltd = _val(bs, "Long Term Debt") or 0.0
+                std = _val(bs, "Current Debt", "Short Term Debt",
+                           "Current Debt And Capital Lease Obligation") or 0.0
+                debt = (ltd + std) or None
+            revenue = _val(inc, "Total Revenue", "Operating Revenue")
+            gross = _val(inc, "Gross Profit")
+            ebit = _val(inc, "EBIT", "Operating Income")
+            net_income = _val(inc, "Net Income", "Net Income Common Stockholders")
+            interest = _val(inc, "Interest Expense", "Interest Expense Non Operating")
+            equity = _val(bs, "Stockholders Equity",
+                          "Total Equity Gross Minority Interest", "Common Stock Equity")
+            assets = _val(bs, "Total Assets")
+            cfo = _val(cf, "Operating Cash Flow",
+                       "Total Cash From Operating Activities")
+            rev_series = _series_oldest_first(inc, "Total Revenue", "Operating Revenue")
+            eps_series = _series_oldest_first(inc, "Diluted EPS", "Basic EPS")
+
+        ev = None
+        if mktcap is not None:
+            ev = mktcap + (debt or 0.0) - (cash or 0.0)
+
+        # ---------------- VALUE ----------------
+        row["fcf_yield"] = (fcf / mktcap) if (fcf and mktcap) else None
+        row["earnings_yield"] = (net_income / mktcap) if (net_income and mktcap) else None
+        row["ebit_ev"] = (ebit / ev) if (ebit and ev and ev > 0) else None
+        row["sales_ev"] = (revenue / ev) if (revenue and ev and ev > 0) else None
+
+        # ---------------- QUALITY ----------------
+        row["gross_margin"] = (gross / revenue) if (gross and revenue) else None
+        row["op_margin"] = (ebit / revenue) if (ebit and revenue) else None
+        row["roe"] = (net_income / equity) if (net_income and equity and equity > 0) else None
+        row["roa"] = (net_income / assets) if (net_income and assets and assets > 0) else None
+        row["debt_to_equity"] = (debt / equity) if (debt is not None and equity and equity > 0) else None
+        row["interest_coverage"] = (ebit / abs(interest)) if (ebit and interest) else None
+        row["accruals"] = ((net_income - cfo) / assets) if (net_income is not None
+                            and cfo is not None and assets and assets > 0) else None
+
+        # ---------------- GROWTH ----------------
+        row["rev_cagr"] = _cagr(rev_series)
+        row["fcf_cagr"] = _cagr(fcf_series)
+        row["eps_cagr"] = _cagr(eps_series)
+
+        # ---------------- DCF inputs ----------------
+        row["_fcf"], row["_cash"], row["_debt"] = fcf, cash, debt
+        row["_shares"], row["_price"], row["_mktcap"] = shares, price, mktcap
+        row["_beta"] = None
+        row["_interest"], row["_revenue"] = interest, revenue
+        row["fcf_series"] = fcf_series
+
+        # ---------------- sector / geo (from the universe CSV, no scrape) -----
+        # At 500 names the per-ticker Yahoo .info scrape was the single heaviest,
+        # most rate-limit-prone call. Sector now comes from the S&P 500 CSV, and
+        # all names are US/USD filers by construction — so no .info call at all.
+        row["sector"] = _SECTORS.get(ticker, "Unknown")
+        row["industry"] = None
+        row["_country"] = "United States"
+        row["_currency"] = "USD"
+
+        # ---------------- dead factors (no free bulk source at scale) ---------
+        # short_interest / institutional / insider are weighted 0 in factor_core
+        # (see DEFAULT_GROUP_WEIGHTS). Kept as None so the row schema is stable
+        # and the engine reweights over the five live factors.
+        row["short_pct_float"] = None
+        row["days_to_cover"] = None
+        row["inst_own_pct"] = None
+        row["insider_net_ratio"] = None
+
+    except Exception as e:
+        row["error"] = str(e)
+
+    row["avail"] = _row_availability(row)
+    return row
+
+
+def _scrape_institutional(t):
+    try:
+        mh = t.major_holders
+        if mh is not None and not mh.empty:
+            txt = mh.astype(str)
+            for _, rrow in txt.iterrows():
+                joined = " ".join(rrow.values).lower()
+                if "institution" in joined:
+                    for cell in rrow.values:
+                        c = str(cell).replace("%", "").strip()
+                        try:
+                            return float(c) / (100.0 if float(c) > 1.5 else 1.0)
+                        except ValueError:
+                            continue
+    except Exception:
+        pass
+    return None
+
+
+def _scrape_insider(t):
+    try:
+        tx = t.insider_transactions
+        if tx is not None and not tx.empty and "Shares" in tx.columns:
+            txt_col = next((c for c in tx.columns
+                            if c.lower() in ("transaction", "text")), None)
+            buys = sells = 0.0
+            for _, r in tx.iterrows():
+                sh = float(r.get("Shares") or 0)
+                label = str(r.get(txt_col, "")).lower() if txt_col else ""
+                if "purchase" in label or "buy" in label:
+                    buys += sh
+                elif "sale" in label or "sell" in label:
+                    sells += sh
+            if buys + sells > 0:
+                return (buys - sells) / (buys + sells)
+    except Exception:
+        pass
+    return None
+
+
+def _row_availability(row):
+    import factor_core as fc
+    out = {}
+    for g, metrics in fc.GROUP_METRICS.items():
+        if g == "dcf":
+            out[g] = 1.0 if row.get("mos") is not None else 0.0
+            continue
+        present = sum(1 for k, _ in metrics if row.get(k) is not None)
+        out[g] = present / len(metrics)
+    return out
+
+
+# --------------------------------------------------------------------------- #
+# batched market data (disk-cached frames + Stooq fallback)
+# --------------------------------------------------------------------------- #
+def _univ_hash(syms):
+    return hashlib.md5(",".join(sorted(syms)).encode()).hexdigest()[:10]
+
+
+def _download_prices(syms):
+    """Return (close_df, vol_df). Yahoo batch first; Stooq fallback on failure."""
+    try:
+        data = nl.with_backoff(
+            yf.download, syms, period=PRICE_LOOKBACK, interval="1d",
+            auto_adjust=True, progress=False, session=nl.SESSION)
+        if data is not None and len(data):
+            close = data["Close"] if "Close" in data else data
+            vol = data["Volume"] if "Volume" in data else None
+            if close is not None and not close.dropna(how="all").empty:
+                return close, vol
+    except Exception:
+        pass
+    # ---- Stooq fallback (free, no key) ----
+    try:
+        import pandas_datareader.data as web
+        end = dt.date.today()
+        start = end - dt.timedelta(days=3 * 366)
+        px = web.DataReader(list(syms), "stooq", start, end)
+        close = px["Close"].sort_index() if "Close" in px else px.sort_index()
+        vol = px["Volume"].sort_index() if "Volume" in px else None
+        return close, vol
+    except Exception:
+        return None, None
+
+
+def fetch_market(tickers):
+    """Daily adjusted returns (T x N), dollar ADV, betas vs SPY, and the daily
+    10y-yield change aligned to the same dates. Frames are disk-cached so this
+    survives restarts; betas/adv/dyield are recomputed cheaply from the frames."""
+    syms = list(tickers) + [BENCHMARK]
+    h = _univ_hash(syms)
+    close = kv.get_df(f"market:close:{h}", max_age_sec=PRICE_TTL)
+    vol = kv.get_df(f"market:vol:{h}", max_age_sec=PRICE_TTL)
+    if close is None:
+        close, vol = _download_prices(syms)
+        if close is not None:
+            kv.put_df(f"market:close:{h}", close)
+            if vol is not None:
+                kv.put_df(f"market:vol:{h}", vol)
+
+    if close is None or getattr(close, "empty", True):
+        empty = pd.DataFrame(index=pd.DatetimeIndex([]))
+        return {"returns": empty, "betas": {tk: None for tk in tickers},
+                "adv": {tk: None for tk in tickers},
+                "dyield": pd.Series(dtype=float), "benchmark": BENCHMARK}
+
+    rets = close.pct_change().dropna(how="all")
+
+    betas = {}
+    if BENCHMARK in rets:
+        mkt = rets[BENCHMARK]
+        var_m = mkt.var()
+        for tk in tickers:
+            betas[tk] = float(rets[tk].cov(mkt) / var_m) if (tk in rets and var_m) else None
+    else:
+        betas = {tk: None for tk in tickers}
+
+    adv = {}
+    if vol is not None:
+        dollar = (close * vol).tail(60)
+        for tk in tickers:
+            adv[tk] = float(dollar[tk].mean()) if tk in dollar else None
+    else:
+        adv = {tk: None for tk in tickers}
+
+    try:
+        tnx = kv.get_df("market:tnx", max_age_sec=PRICE_TTL)
+        if tnx is None:
+            raw = nl.with_backoff(
+                yf.download, RATE_TICKER, period=PRICE_LOOKBACK, interval="1d",
+                auto_adjust=False, progress=False, session=nl.SESSION)
+            tnx = raw[["Close"]] if (raw is not None and "Close" in raw) else None
+            if tnx is not None:
+                kv.put_df("market:tnx", tnx)
+        y = tnx["Close"].squeeze()
+        if float(np.nanmedian(y)) > 25:
+            y = y / 10.0
+        y = y / 100.0
+        dyield = y.reindex(rets.index).ffill().diff()
+    except Exception:
+        dyield = pd.Series(0.0, index=rets.index)
+
+    return {"returns": rets, "betas": betas, "adv": adv,
+            "dyield": dyield, "benchmark": BENCHMARK}
+
+
+def fetch_risk_free():
+    return _safe_rf()
+
+
+# --------------------------------------------------------------------------- #
+# orchestration
+# --------------------------------------------------------------------------- #
+def load_universe(tickers, rf=None, erp=DEFAULT_ERP, terminal=DEFAULT_TERMINAL):
+    """Parallel (low-concurrency) per-ticker fetch + batched market data, then
+    fold in DCF margin-of-safety as the 'mos' factor. Return contract is
+    identical to the original plus a `source_mix` provenance tally.
+    Row order matches `tickers`."""
+    rf = rf if rf is not None else _safe_rf()
+    rows_by_tk = {}
+    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as ex:
+        for r in ex.map(fetch_one, tickers):
+            rows_by_tk[r["ticker"]] = r
+
+    mkt = fetch_market(tuple(tickers))
+    betas = mkt["betas"]
+    rets = mkt["returns"]
+    close = (1 + rets).cumprod() if not rets.empty else rets
+
+    for tk in tickers:
+        row = rows_by_tk[tk]
+        row["_beta"] = betas.get(tk)
+        row["mom_12_1"] = _momentum(close, tk, MOM_12, MOM_SKIP)
+        row["mom_6_1"] = _momentum(close, tk, MOM_6, MOM_SKIP)
+
+        stock = {"analyst_g5": None,
+                 "hist_cagr": core.robust_cagr(row.get("fcf_series") or [], cap=CAGR_CAP),
+                 "beta": row["_beta"], "market_cap": row["_mktcap"],
+                 "debt": row["_debt"], "interest_expense": row["_interest"],
+                 "tax_rate": 0.21}
+        assum, _ = core.derive_assumptions(stock, rf, erp, terminal, CAGR_CAP, FALLBACK_G1)
+        mos = None
+        # GUARD 1 — currency mismatch. Statement figures (FCF/cash/debt) are in
+        # the filer's reporting currency; price/shares for ADRs are USD. Running
+        # a DCF across two currencies produces garbage (e.g. TSM in TWD -> a
+        # +3000% "margin of safety"). Only compute the DCF when the reporting
+        # currency is USD (or unknown). Non-USD names get no dcf factor and the
+        # engine reweights around them.
+        _ccy = (row.get("_currency") or "USD").upper()
+        currency_ok = _ccy in ("USD", "")
+        if currency_ok and assum["r"] is not None and row.get("_fcf") and row.get("_shares"):
+            res = core.two_stage_dcf(row["_fcf"], assum["g1"], assum["g2"],
+                                     assum["gt"], assum["r"], row["_cash"],
+                                     row["_debt"], row["_shares"])
+            if not res.error and row.get("_price"):
+                m = (res.fair - row["_price"]) / row["_price"]
+                # GUARD 2 — implausibility. A sane equity DCF lands within a few
+                # hundred percent of price. Anything beyond ±300% is almost
+                # certainly a data/units problem (stale price, split lag, bad
+                # share count), so drop it rather than let it poison the
+                # cross-sectional composite.
+                mos = m if abs(m) <= 3.0 else None
+        row["mos"] = mos
+        if not currency_ok:
+            row["_dcf_skipped"] = f"non-USD filer ({_ccy}) — DCF excluded"
+        row["avail"] = _row_availability(row)
+
+    rows = [rows_by_tk[tk] for tk in tickers]
+    availability = _universe_availability(rows)
+    source_mix = {}
+    for r in rows:
+        s = r.get("_source_fund", "yahoo")
+        source_mix[s] = source_mix.get(s, 0) + 1
+    return {"as_of": dt.datetime.now(), "rows": rows, "returns": rets,
+            "dyield": mkt["dyield"], "betas": betas, "adv": mkt["adv"],
+            "rf": rf, "availability": availability,
+            "benchmark": mkt["benchmark"], "source_mix": source_mix}
+
+
+def _momentum(close_df, tk, lookback, skip):
+    if getattr(close_df, "empty", True) or tk not in close_df or len(close_df) < lookback + skip:
+        return None
+    s = close_df[tk].dropna()
+    if len(s) < lookback + skip:
+        return None
+    p_now = s.iloc[-1 - skip]
+    p_then = s.iloc[-1 - skip - lookback]
+    if p_then <= 0:
+        return None
+    return float(p_now / p_then - 1.0)
+
+
+def _universe_availability(rows):
+    import factor_core as fc
+    out = {}
+    for g in fc.GROUP_METRICS:
+        vals = [r["avail"].get(g, 0.0) for r in rows]
+        out[g] = float(np.mean(vals)) if vals else 0.0
+    return out
+
+
+def _safe_rf():
+    cached = kv.get("market:rf", max_age_sec=PRICE_TTL)
+    if cached is not None:
+        return cached
+    try:
+        t = nl.ticker(RATE_TICKER, yf)
+        v = t.fast_info.get("last_price")
+        v = float(v)
+        v = v / 10.0 if v > 25 else v
+        rf = v / 100.0
+        kv.put("market:rf", rf)
+        return rf
+    except Exception:
+        return DEFAULT_RF
