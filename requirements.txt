@@ -13,4 +13,3 @@ curl_cffi>=0.7.4          # browser-TLS impersonation to reduce 429s
 requests>=2.31            # SEC EDGAR
 pandas-datareader>=0.10   # Stooq price fallback (free, no key)
 pyarrow>=14.0             # parquet disk cache for price frames
-alpaca-py>=0.21
