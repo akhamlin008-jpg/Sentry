@@ -12,9 +12,24 @@ change to adopt them.
 | `backtest_core.py` | Walk-forward backtester: score → hysteresis selection → trailing-only shrunk covariance → constrained weights → optional short overlay → circuit breaker → costs → realize forward returns. Forward returns are only touched *after* weights freeze. |
 | `signal_research.py` | Rank-IC per factor group with Newey-West t-stats, IC decay across horizons, factor-score correlation matrix, and beta/size/sector neutralization (residualization). |
 | `portfolio_core.py` | Hysteresis (enter top-20 / exit below top-40), enforced caps (per-name weight, sector weight, per-name risk contribution), **risk-reducing short overlay**, drawdown circuit breaker with hysteresis. |
+| `exposure_core.py` | Volatility-targeted gross exposure: scale = clip(target / est. vol), using the conservative MIN of ex-ante (w'Σw from trailing covariance) and realized (strategy's own past returns). Composes with the drawdown breaker (min of the two). Off by default (`vol_target_ann=None`). |
 | `cost_model.py` | Half-spread + √-participation impact model with a hard capacity veto (>5% ADV → trade disallowed). Parameters are labeled assumptions; run 0.5×/1×/2× sensitivity. |
 | `test_enhanced.py` | 13 offline tests against closed-form / construction-guaranteed answers. |
 | `demo_synthetic_backtest.py` | End-to-end run on **synthetic** data with a planted signal — proves the machinery, proves nothing about real edge. |
+
+## Validated group weights (`weight_mode="validated_equal"`)
+
+Replaces the hand-picked composite weights with a walk-forward rule: at each
+rebalance, a factor group is included iff its trailing IC history (past
+snapshots only — a no-peek property enforced by a unit test) has >= `min_obs`
+observations and mean IC > 0; included groups get EQUAL weight. No
+optimization, deliberately: fitting weights to short IC histories is
+curve-fitting. Known honest costs observed in the synthetic demo: (1) the
+binary include/exclude rule is noisy at small samples — a near-zero group can
+qualify by luck and a real one can drop out; raise `min_obs`/`min_mean_ic` to
+be stricter at the price of slower adaptation; (2) weight regime-switches
+create extra turnover when a group crosses the threshold (demo: avg turnover
+rose from ~0.26 to ~0.43) — weight smoothing is a sensible future addition.
 
 ## Shorts policy (as requested)
 

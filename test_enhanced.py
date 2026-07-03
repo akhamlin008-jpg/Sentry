@@ -135,3 +135,47 @@ def test_neutralize_removes_beta_tilt():
 if __name__ == "__main__":
     import sys
     sys.exit(pytest.main([__file__, "-q"]))
+
+
+# ---------------- exposure_core ---------------- #
+import exposure_core as ex
+
+def test_vol_target_ex_ante_halves_at_double_vol():
+    # per-period sigma such that annualized = 24%, target 12% -> scale 0.5
+    sig = 0.24 / np.sqrt(12)
+    assert abs(ex.scale_from_ex_ante(sig, 0.12, 12) - 0.5) < 1e-12
+
+def test_vol_target_caps_and_no_opinion_cases():
+    assert ex.scale_from_ex_ante(1e-9, 0.12, 12, max_scale=1.0) == 1.0   # calm -> capped
+    assert ex.scale_from_ex_ante(np.nan, 0.12, 12) == 1.0                # no estimate
+    assert ex.scale_from_realized([0.01, -0.01], 0.12, 12, min_obs=6) == 1.0  # short history
+    big = ex.scale_from_ex_ante(10.0, 0.12, 12, min_scale=0.25)
+    assert big == 0.25                                                    # floor binds
+
+def test_combined_scale_is_conservative_min():
+    sig = 0.24 / np.sqrt(12)                       # ex-ante says 0.5
+    calm = [0.001] * 12                            # realized says calm -> 1.0
+    assert ex.combined_scale(sig, calm, 0.12, 12) == 0.5
+
+
+# ---------------- walk-forward weights: no-peek property ---------------- #
+
+def test_walk_forward_weights_ignore_the_future():
+    import copy
+    from demo_synthetic_backtest import snaps
+    i = 18
+    w1, d1 = sr.walk_forward_weights(snaps, i, min_obs=6)
+    future_mangled = copy.deepcopy(snaps)
+    for sn in future_mangled[i:]:                  # corrupt everything at/after i
+        for tk in sn.fwd_returns:
+            sn.fwd_returns[tk] = 9.9
+    w2, d2 = sr.walk_forward_weights(future_mangled, i, min_obs=6)
+    assert w1 == w2 and d1["mode"] == d2["mode"]
+
+def test_walk_forward_weights_sum_to_one_and_prior_mode_early():
+    from demo_synthetic_backtest import snaps
+    w, d = sr.walk_forward_weights(snaps, 2, min_obs=6)
+    assert d["mode"] == "ignorance_prior"
+    assert abs(sum(w.values()) - 1.0) < 1e-9
+    w, d = sr.walk_forward_weights(snaps, len(snaps), min_obs=6)
+    assert abs(sum(w.values()) - 1.0) < 1e-9

@@ -89,19 +89,26 @@ for t in range(12, T):                            # first year = warmup history
     dead |= set(ev)
 
 if __name__ == "__main__":
-    for label, allow_shorts in [("long-only", False), ("with risk-reducing shorts", True)]:
+    configs = [
+        ("long-only baseline", {}),
+        ("+ vol target 10%", dict(vol_target_ann=0.10)),
+        ("+ vol target 10% + validated weights",
+         dict(vol_target_ann=0.10, weight_mode="validated_equal",
+              weight_kwargs=dict(min_obs=6))),
+    ]
+    for label, extra in configs:
         res = bt.run_backtest(
             snaps, enter_rank=20, exit_rank=40, min_history=18,
-            allow_shorts=allow_shorts,
-            short_kwargs=dict(short_score_pct=25, max_short_w=0.03,
-                              max_gross_short=0.15),
+            **extra,
         )
         s = bt.summarize(res)
         print(f"\n=== {label} (SYNTHETIC DATA — numbers are not evidence of real edge) ===")
         for k, v in s.items():
+            if k == "note":
+                continue
             print(f"  {k:>22}: {v:.4f}" if isinstance(v, float) else f"  {k:>22}: {v}")
-        naive_res = bt.run_backtest(snaps, enter_rank=20, exit_rank=20,
-                                    min_history=18, allow_shorts=False)
-        if not allow_shorts:
-            print(f"  turnover, hysteresis 20/40 : {np.nanmean(res['turnover']):.3f}"
-                  f"  vs fresh-top-20 each month : {np.nanmean(naive_res['turnover']):.3f}")
+        if extra.get("weight_mode") == "validated_equal":
+            final = res["group_weights"][-1]
+            print(f"  final weight mode: {final['mode']}")
+            print(f"  final group weights: " + ", ".join(
+                f"{g}={w:.2f}" for g, w in (final["weights"] or {}).items() if w > 0))

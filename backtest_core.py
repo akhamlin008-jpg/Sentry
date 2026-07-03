@@ -31,6 +31,8 @@ import factor_core as fc
 import risk_core as rk
 import portfolio_core as pc
 import cost_model as cm
+import exposure_core as ex
+import signal_research as sr
 from pit_layer import validate_snapshot, validate_chronology
 
 
@@ -38,6 +40,8 @@ def run_backtest(snaps, *,
                  enter_rank=20, exit_rank=40, min_groups=3,
                  max_name_w=0.10, max_sector_w=0.30, max_rc_pct=0.15,
                  allow_shorts=False, short_kwargs=None, min_history=60,
+                 weight_mode="default", weight_kwargs=None,
+                 vol_target_ann=None, vol_target_kwargs=None, trailing_ppy=12,
                  cost_kwargs=None, start_equity=1_000_000.0,
                  dd_trigger=0.15, degross_to=0.5,
                  benchmark_returns=None, strict_pit=True):
@@ -54,16 +58,24 @@ def run_backtest(snaps, *,
 
     cost_kwargs = cost_kwargs or {}
     short_kwargs = short_kwargs or {}
+    weight_kwargs = weight_kwargs or {}
+    vol_target_kwargs = vol_target_kwargs or {}
 
     equity = start_equity
     eq_curve, rets, costs_frac, turnovers = [], [], [], []
     held_w: dict[str, float] = {}          # ticker -> signed weight (of equity)
     holdings_hist, ew_baseline = [], []
 
-    for sn in snaps:
+    weight_hist = []
+    for i_sn, sn in enumerate(snaps):
         rows = sn.rows
         tickers = [r["ticker"] for r in rows]
-        res = fc.score_universe(rows)
+        if weight_mode == "validated_equal":
+            gw, gw_diag = sr.walk_forward_weights(snaps, i_sn, **weight_kwargs)
+        else:
+            gw, gw_diag = None, {"mode": "default"}
+        weight_hist.append({"weights": gw, "mode": gw_diag.get("mode")})
+        res = fc.score_universe(rows, weights=gw)
         comp = res["composite"]
 
         gmat = np.vstack([res["group_score"][g] for g in fc.GROUP_METRICS])
@@ -79,6 +91,7 @@ def run_backtest(snaps, *,
         usable = [t for t in book if R is not None and t in R.columns
                   and R[t].notna().sum() >= min_history]
         target_w: dict[str, float] = {}
+        sigma_period = np.nan
         if len(usable) >= 2:
             idx_map = {t: i for i, t in enumerate(tickers)}
             Rm = R[usable].dropna(how="any").values
@@ -102,12 +115,20 @@ def run_backtest(snaps, *,
                     **short_kwargs)
                 target_w = {t: float(x) for t, x in zip(full, w_signed)
                             if abs(x) > 1e-9}
+                sigma_period = rk.port_vol(w_signed, S_full)
             else:
                 target_w = {t: float(x) for t, x in zip(usable, w_long)}
+                sigma_period = rk.port_vol(w_long, S_long)
 
-        # circuit breaker from PAST equity only
+        # exposure scaling from PAST data only:
+        #   breaker uses past equity; vol target uses trailing covariance
+        #   (ex-ante) and the strategy's own past returns (realized).
         scale = pc.circuit_breaker_scale(eq_curve, dd_trigger=dd_trigger,
                                          degross_to=degross_to)
+        if vol_target_ann is not None:
+            vscale = ex.combined_scale(sigma_period, rets, vol_target_ann,
+                                       trailing_ppy, **vol_target_kwargs)
+            scale = min(scale, vscale)
         target_w = {t: w * scale for t, w in target_w.items()}
 
         # trades + costs
@@ -162,7 +183,8 @@ def run_backtest(snaps, *,
 
     out = {"equity": np.array(eq_curve), "returns": np.array(rets),
            "costs": np.array(costs_frac), "turnover": np.array(turnovers),
-           "holdings": holdings_hist, "ew_universe": np.array(ew_baseline)}
+           "holdings": holdings_hist, "ew_universe": np.array(ew_baseline),
+           "group_weights": weight_hist}
     if benchmark_returns is not None:
         out["benchmark"] = np.asarray(benchmark_returns, float)
     return out

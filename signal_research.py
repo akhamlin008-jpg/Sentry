@@ -159,3 +159,50 @@ def group_score_correlation(snaps, groups=None, method="rank"):
             if cs:
                 C[i, j] = C[j, i] = float(np.mean(cs))
     return groups, C
+
+
+# --------------------------------------------------------------------------- #
+# Walk-forward validated group weights (PIT-safe replacement for hand-picked)
+# --------------------------------------------------------------------------- #
+
+def walk_forward_weights(snaps, i, groups=None, min_obs=12, min_mean_ic=0.0,
+                         method="rank"):
+    """Equal weights over the factor groups that have EARNED inclusion by
+    snapshot index i, judged only on snapshots[0:i] (whose forward windows are
+    fully realized before snaps[i].date — PIT-safe by construction).
+
+    Inclusion rule (deliberately binary, per the anti-overfitting argument in
+    this module's docstring): a group is included iff it has >= min_obs
+    trailing IC observations AND trailing mean IC > min_mean_ic. Included
+    groups get EQUAL weight — no optimization, because optimizing weights on
+    a short IC history is curve-fitting with extra steps.
+
+    Fallbacks, made explicit:
+      * i < min_obs (not enough history to judge anything): equal weight
+        across all candidate groups — an ignorance prior, not an endorsement.
+      * history sufficient but NO group qualifies: also equal weight across
+        all candidates, plus flag 'no_group_qualified'. Zero exposure on IC
+        evidence alone would be too aggressive at these sample sizes (mean IC
+        below zero over ~12 monthly points is weak evidence of anything);
+        if you want "stand aside" behavior instead, act on the flag upstream.
+
+    Returns (weights_dict, diagnostics).
+    """
+    import factor_core as fc
+    groups = groups or [g for g, w in fc.DEFAULT_GROUP_WEIGHTS.items() if w > 0]
+    diag = {}
+    if i < min_obs:
+        w = {g: 1.0 / len(groups) for g in groups}
+        return w, {"mode": "ignorance_prior", "detail": diag}
+    qualified = []
+    for g in groups:
+        _, ics = ic_series(snaps[:i], g, method=method)
+        s = ic_summary(ics)
+        diag[g] = s
+        if s["n"] >= min_obs and np.isfinite(s["mean"]) and s["mean"] > min_mean_ic:
+            qualified.append(g)
+    if not qualified:
+        w = {g: 1.0 / len(groups) for g in groups}
+        return w, {"mode": "no_group_qualified", "detail": diag}
+    w = {g: (1.0 / len(qualified) if g in qualified else 0.0) for g in groups}
+    return w, {"mode": "validated_equal", "qualified": qualified, "detail": diag}
