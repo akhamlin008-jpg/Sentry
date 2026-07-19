@@ -242,7 +242,7 @@ function applySnapshot(j){
   j.stocks.forEach(o=>{
     if(o.px==null||o.cap==null) return;
     const f={};
-    FAXES.forEach(k=>f[k]= k==='meanRev' ? null : (o.f&&o.f[k]!=null?o.f[k]:null));
+    FAXES.forEach(k=>{const src=k==='meanRev'?(o.f&&(o.f.reversal!=null?o.f.reversal:o.f.meanRev)):(o.f&&o.f[k]);f[k]=src!=null?src:null;});
     const g1=o.g1!=null?o.g1:0.08, g2=o.g2!=null?o.g2:g1*0.55, gt=o.gt!=null?o.gt:GT;
     const r=o.r!=null?o.r:RF+ (o.beta!=null?o.beta:1)*ERP;
     const dcf=o.fair!=null?{fair:o.fair,flags:o.flags||[],tvf:null}
@@ -860,7 +860,7 @@ function openHexDock(st){
     ${radarSvg(st.f)}
     <div class="bars">${FAXES.map(k=>{const v=st.f[k];
       return `<div class="b"><span>${k.toUpperCase()}</span><div class="tr"><div class="fl" style="width:${v==null?0:clamp((v+2.6)/5.2,0,1)*100}%;${(v||0)<0?'background:#ff4757;box-shadow:0 0 8px rgba(255,71,87,.6)':''}"></div></div><span>${v==null?'·':(v>0?'+':'')+v.toFixed(2)}</span></div>`;}).join('')}</div>
-    <div class="flag">Cross-sectional z-scores: top of THIS universe now, not an absolute verdict. '·' = factor not observable (reweighted out, not scored 0). Mean-reversion is display-only until the engine weights it.</div>`;
+    <div class="flag">Cross-sectional z-scores: top of THIS universe now, not an absolute verdict. '·' = factor not observable (reweighted out, not scored 0). Mean-reversion axis shows the pipeline's reversal factor when the live feed provides it.</div>`;
 }
 
 /* =====================================================================
@@ -1072,8 +1072,8 @@ function loop(now){
       const pr=project(wp);
       const d=camera.position.distanceTo(wp);
       const pxr=13.5*p.group.scale.x/d*(innerHeight/(2*Math.tan(camera.fov*Math.PI/360)));
-      o.l.style.display=pr.behind?'none':'block';
-      o.l.style.opacity=lerp(0.15,1,front);
+      o.l.style.display=(pr.behind||front<0.38)?'none':'block';
+      o.l.style.opacity=lerp(0,1,clamp((front-0.38)/0.62,0,1));
       o.l.style.left=pr.x+'px'; o.l.style.top=(pr.y+pxr+22)+'px';
       o.r.style.display=(pr.behind||i!==hubIdx)?'none':'block';
       o.r.style.left=pr.x+'px'; o.r.style.top=pr.y+'px';
