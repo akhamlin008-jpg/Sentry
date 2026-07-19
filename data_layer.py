@@ -393,7 +393,8 @@ def fetch_market(tickers):
 
     if close is None or getattr(close, "empty", True):
         empty = pd.DataFrame(index=pd.DatetimeIndex([]))
-        return {"returns": empty, "betas": {tk: None for tk in tickers},
+        return {"returns": empty, "close": empty,
+                "betas": {tk: None for tk in tickers},
                 "adv": {tk: None for tk in tickers},
                 "dyield": pd.Series(dtype=float), "benchmark": BENCHMARK}
 
@@ -433,7 +434,7 @@ def fetch_market(tickers):
     except Exception:
         dyield = pd.Series(0.0, index=rets.index)
 
-    return {"returns": rets, "betas": betas, "adv": adv,
+    return {"returns": rets, "close": close, "betas": betas, "adv": adv,
             "dyield": dyield, "benchmark": BENCHMARK}
 
 
@@ -458,11 +459,38 @@ def load_universe(tickers, rf=None, erp=DEFAULT_ERP, terminal=DEFAULT_TERMINAL):
     mkt = fetch_market(tuple(tickers))
     betas = mkt["betas"]
     rets = mkt["returns"]
+    close_px = mkt.get("close")          # raw price LEVELS from this run's pull
     close = (1 + rets).cumprod() if not rets.empty else rets
 
     for tk in tickers:
         row = rows_by_tk[tk]
         row["_beta"] = betas.get(tk)
+
+        # ---- spot price DECOUPLED from the fundamentals cache ---------------
+        # fast_info["last_price"] rides the once-daily fund:{ticker} row, so a
+        # cached row (or a failed live fetch) used to pin px/cap to an old
+        # price while the history matrix moved on. The headline price is now
+        # the last valid close of the history pulled THIS run, so it can never
+        # lag the history, and every row carries an explicit price_asof.
+        row["price_asof"] = None
+        row["price_stale"] = False
+        if close_px is not None and not close_px.empty and tk in close_px.columns:
+            s_px = close_px[tk].dropna()
+            if not s_px.empty:
+                spot = float(s_px.iloc[-1])
+                asof = s_px.index[-1]
+                row["_price"] = spot
+                row["price_asof"] = (asof.date().isoformat()
+                                     if hasattr(asof, "date") else str(asof))
+                if row.get("_shares"):
+                    row["_mktcap"] = row["_shares"] * spot   # keep cap = px × sh
+                latest = close_px.index[-1]
+                row["price_stale"] = bool(asof < latest)     # ticker lags board
+        if row["price_asof"] is None:
+            # No history for this name this run: whatever price survives is the
+            # cached fundamentals one — mark it stale instead of passing it off
+            # as current.
+            row["price_stale"] = True
         row["mom_12_1"] = _momentum(close, tk, MOM_12, MOM_SKIP)
         row["mom_6_1"] = _momentum(close, tk, MOM_6, MOM_SKIP)
         # short-term reversal: most-recent 1-week and 1-month returns (the

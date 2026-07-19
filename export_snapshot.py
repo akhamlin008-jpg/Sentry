@@ -22,6 +22,7 @@ from __future__ import annotations
 import datetime as dt
 import json
 import math
+import os
 import sys
 
 import numpy as np
@@ -39,6 +40,13 @@ FALLBACK_G1 = 0.10
 MOS_IMPLAUSIBLE = 300.0           # same sanity flag as App.py
 RETURN_DAYS = 250                 # trailing window shipped to the site
 OUT_PATH = "snapshot.json"
+
+# ---- staleness gate ---------------------------------------------------------
+# Fail the export (non-zero exit -> red Action) if the newest price date in
+# the whole board is more than STALE_MAX_CAL_DAYS calendar days behind the run
+# date (spans weekends + a holiday). Individually lagging tickers are listed
+# loudly and flagged in the JSON, but do not fail the run on their own.
+STALE_MAX_CAL_DAYS = int(os.environ.get("STALE_MAX_CAL_DAYS", "4"))
 
 
 def _clean(x, nd=4):
@@ -134,6 +142,8 @@ def main() -> int:
             "tk": tk,
             "sec": sec_idx.get(r.get("sector") or "Unknown", 0),
             "px": _clean(s["price"], 2), "cap": _clean(s["market_cap"], 0),
+            "px_asof": r.get("price_asof"),
+            "px_stale": bool(r.get("price_stale")),
             "sh": _clean(s["shares"], 0), "cash": _clean(s["cash"], 0),
             "debt": _clean(s["debt"], 0), "fcf": _clean(s["fcf"], 0),
             "beta": _clean(s["beta"], 2),
@@ -157,8 +167,31 @@ def main() -> int:
         mat = tail[cols].fillna(0.0).round(4).values.T.tolist()
         returns_block = {"cols": cols, "m": mat, "days": int(len(tail))}
 
+    # ---- validation gate: never ship a snapshot that pretends to be fresh ----
+    asof_dates = [s["px_asof"] for s in stocks if s.get("px_asof")]
+    board_latest = max(asof_dates) if asof_dates else None
+    laggards = [s["tk"] for s in stocks
+                if s.get("px_stale") or (board_latest and s.get("px_asof")
+                                         and s["px_asof"] < board_latest)]
+    if laggards:
+        print(f"[export] WARNING: {len(laggards)} tickers lag the board "
+              f"(board latest {board_latest}): {', '.join(sorted(laggards))}")
+    if board_latest is None:
+        print("[export] ERROR: no price dates at all — refusing to export.")
+        return 1
+    lag_days = (started.date() - dt.date.fromisoformat(board_latest)).days
+    print(f"[export] board price date {board_latest} · run date "
+          f"{started.date()} · lag {lag_days}d (max {STALE_MAX_CAL_DAYS}d)")
+    if lag_days > STALE_MAX_CAL_DAYS:
+        print(f"[export] ERROR: board is {lag_days} calendar days stale "
+              f"(> {STALE_MAX_CAL_DAYS}). The price cache is not refreshing — "
+              f"refusing to export a snapshot that pretends to be current.")
+        return 1
+
     snap = {
         "as_of": started.isoformat(timespec="minutes"),
+        "px_asof": board_latest,
+        "px_laggards": sorted(laggards),
         "rf": _clean(rf), "benchmark": payload.get("benchmark"),
         "sectors": sector_names,
         "n_valued": n_valued,

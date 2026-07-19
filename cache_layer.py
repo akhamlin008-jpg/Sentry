@@ -34,6 +34,54 @@ from pathlib import Path
 CACHE_DIR = Path(os.environ.get("DCF_CACHE_DIR", ".cache"))
 CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
+# FRESHNESS IS STORED *IN* THE PAYLOAD, NOT IN FILE MTIME.
+# ---------------------------------------------------------
+# The cache is committed to git and restored by actions/checkout, which sets
+# every file's mtime to checkout time. An mtime-based TTL therefore reports
+# age ≈ 0 seconds on every CI run, so entries NEVER expire and the "refresh"
+# job silently re-serves the same data forever (this froze the whole pipeline
+# on 2026-06-29). JSON entries now carry a {"_cached_at": epoch} envelope and
+# parquet entries a "<file>.meta.json" sidecar; freshness is judged from that
+# embedded timestamp only. Legacy files without a timestamp are treated as
+# STALE, which forces exactly one full refetch after this change ships.
+#
+# DCF_CACHE_SERVE_STALE=1 makes get/get_df ignore TTLs and serve whatever is
+# on disk (age is still reported truthfully by as_of/age_seconds). Set it for
+# read-only consumers (the deployed Streamlit app) that must never hit the
+# network at request time; leave it unset in the refresh Action.
+SERVE_STALE = os.environ.get("DCF_CACHE_SERVE_STALE", "0") == "1"
+
+_ENVELOPE_KEY = "_cached_at"
+_ENVELOPE_VAL = "_value"
+
+
+def _now() -> float:
+    return time.time()
+
+
+def _meta_path(key: str) -> Path:
+    return CACHE_DIR / f"{_safe(key)}.meta.json"
+
+
+def _embedded_ts(key: str):
+    """Trustworthy write-time of a cache entry, or None if unknown (legacy)."""
+    p = _path(key)
+    if p.exists():
+        try:
+            obj = json.loads(p.read_text())
+            if isinstance(obj, dict) and _ENVELOPE_KEY in obj:
+                return float(obj[_ENVELOPE_KEY])
+        except Exception:
+            return None
+        return None  # legacy JSON without envelope -> unknown age
+    mp = _meta_path(key)
+    if mp.exists():
+        try:
+            return float(json.loads(mp.read_text())[_ENVELOPE_KEY])
+        except Exception:
+            return None
+    return None
+
 DAY = 24 * 3600
 
 
@@ -51,21 +99,31 @@ def _path(key: str, ext: str = "json") -> Path:
 # JSON payloads (dicts of floats / None / lists — e.g. a fetched ticker row)
 # --------------------------------------------------------------------------- #
 def get(key: str, max_age_sec: int = DAY):
-    """Return cached value if present AND fresher than max_age_sec, else None."""
+    """Return cached value if present AND fresher than max_age_sec, else None.
+
+    Freshness comes from the timestamp embedded at put() time — NOT the file
+    mtime, which git checkout resets and which therefore proves nothing.
+    Legacy entries without an embedded timestamp count as stale (unless
+    DCF_CACHE_SERVE_STALE=1)."""
     p = _path(key)
     if not p.exists():
         return None
-    if time.time() - p.stat().st_mtime > max_age_sec:
-        return None
     try:
-        return json.loads(p.read_text())
+        obj = json.loads(p.read_text())
     except Exception:
         return None
+    if isinstance(obj, dict) and _ENVELOPE_KEY in obj:
+        if SERVE_STALE or (_now() - float(obj[_ENVELOPE_KEY])) <= max_age_sec:
+            return obj.get(_ENVELOPE_VAL)
+        return None
+    # legacy, un-enveloped payload: age unknowable -> stale by default
+    return obj if SERVE_STALE else None
 
 
 def put(key: str, value) -> bool:
     try:
-        _path(key).write_text(json.dumps(value, default=str))
+        envelope = {_ENVELOPE_KEY: _now(), _ENVELOPE_VAL: value}
+        _path(key).write_text(json.dumps(envelope, default=str))
         return True
     except Exception:
         return False
@@ -76,6 +134,9 @@ def delete(key: str) -> None:
         p = _path(key, ext)
         if p.exists():
             p.unlink()
+    mp = _meta_path(key)
+    if mp.exists():
+        mp.unlink()
 
 
 # --------------------------------------------------------------------------- #
@@ -86,8 +147,12 @@ def get_df(key: str, max_age_sec: int = DAY):
     p = _path(key, "parquet")
     if not p.exists():
         return None
-    if time.time() - p.stat().st_mtime > max_age_sec:
-        return None
+    ts = _embedded_ts(key)
+    if not SERVE_STALE:
+        if ts is None:                       # legacy parquet without sidecar
+            return None
+        if _now() - ts > max_age_sec:
+            return None
     try:
         return pd.read_parquet(p)
     except Exception:
@@ -97,6 +162,7 @@ def get_df(key: str, max_age_sec: int = DAY):
 def put_df(key: str, df) -> bool:
     try:
         df.to_parquet(_path(key, "parquet"))
+        _meta_path(key).write_text(json.dumps({_ENVELOPE_KEY: _now()}))
         return True
     except Exception:
         return False
@@ -106,6 +172,10 @@ def put_df(key: str, df) -> bool:
 # Freshness introspection (used by the UI to show "data as of …")
 # --------------------------------------------------------------------------- #
 def as_of(key: str):
+    ts = _embedded_ts(key)
+    if ts is not None:
+        return dt.datetime.fromtimestamp(ts)
+    # legacy fallback: mtime (unreliable after a git checkout — see header)
     for ext in ("json", "parquet"):
         p = _path(key, ext)
         if p.exists():
