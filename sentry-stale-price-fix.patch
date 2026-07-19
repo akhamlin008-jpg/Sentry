@@ -1,0 +1,289 @@
+diff --git a/App.py b/App.py
+index 587ec8e..cae0b2a 100644
+--- a/App.py
++++ b/App.py
+@@ -14,6 +14,15 @@ All finance math still lives in dcf_core.py (no streamlit/yfinance there).
+ """
+ from __future__ import annotations
+ 
++import os
++
++# The deployed app is a READ-ONLY consumer of the committed .cache: it must
++# serve whatever the refresh Action last committed (showing its true age via
++# kv.as_of) rather than live-fetch at request time when the TTL has lapsed —
++# e.g. over a weekend. The refresh Action leaves this unset, so IT still
++# refetches on real TTL expiry. Set DCF_CACHE_SERVE_STALE=0 to override.
++os.environ.setdefault("DCF_CACHE_SERVE_STALE", "1")
++
+ import pandas as pd
+ import streamlit as st
+ 
+diff --git a/cache_layer.py b/cache_layer.py
+index 5b97446..0c280f7 100644
+--- a/cache_layer.py
++++ b/cache_layer.py
+@@ -34,6 +34,54 @@ from pathlib import Path
+ CACHE_DIR = Path(os.environ.get("DCF_CACHE_DIR", ".cache"))
+ CACHE_DIR.mkdir(parents=True, exist_ok=True)
+ 
++# FRESHNESS IS STORED *IN* THE PAYLOAD, NOT IN FILE MTIME.
++# ---------------------------------------------------------
++# The cache is committed to git and restored by actions/checkout, which sets
++# every file's mtime to checkout time. An mtime-based TTL therefore reports
++# age ≈ 0 seconds on every CI run, so entries NEVER expire and the "refresh"
++# job silently re-serves the same data forever (this froze the whole pipeline
++# on 2026-06-29). JSON entries now carry a {"_cached_at": epoch} envelope and
++# parquet entries a "<file>.meta.json" sidecar; freshness is judged from that
++# embedded timestamp only. Legacy files without a timestamp are treated as
++# STALE, which forces exactly one full refetch after this change ships.
++#
++# DCF_CACHE_SERVE_STALE=1 makes get/get_df ignore TTLs and serve whatever is
++# on disk (age is still reported truthfully by as_of/age_seconds). Set it for
++# read-only consumers (the deployed Streamlit app) that must never hit the
++# network at request time; leave it unset in the refresh Action.
++SERVE_STALE = os.environ.get("DCF_CACHE_SERVE_STALE", "0") == "1"
++
++_ENVELOPE_KEY = "_cached_at"
++_ENVELOPE_VAL = "_value"
++
++
++def _now() -> float:
++    return time.time()
++
++
++def _meta_path(key: str) -> Path:
++    return CACHE_DIR / f"{_safe(key)}.meta.json"
++
++
++def _embedded_ts(key: str):
++    """Trustworthy write-time of a cache entry, or None if unknown (legacy)."""
++    p = _path(key)
++    if p.exists():
++        try:
++            obj = json.loads(p.read_text())
++            if isinstance(obj, dict) and _ENVELOPE_KEY in obj:
++                return float(obj[_ENVELOPE_KEY])
++        except Exception:
++            return None
++        return None  # legacy JSON without envelope -> unknown age
++    mp = _meta_path(key)
++    if mp.exists():
++        try:
++            return float(json.loads(mp.read_text())[_ENVELOPE_KEY])
++        except Exception:
++            return None
++    return None
++
+ DAY = 24 * 3600
+ 
+ 
+@@ -51,21 +99,31 @@ def _path(key: str, ext: str = "json") -> Path:
+ # JSON payloads (dicts of floats / None / lists — e.g. a fetched ticker row)
+ # --------------------------------------------------------------------------- #
+ def get(key: str, max_age_sec: int = DAY):
+-    """Return cached value if present AND fresher than max_age_sec, else None."""
++    """Return cached value if present AND fresher than max_age_sec, else None.
++
++    Freshness comes from the timestamp embedded at put() time — NOT the file
++    mtime, which git checkout resets and which therefore proves nothing.
++    Legacy entries without an embedded timestamp count as stale (unless
++    DCF_CACHE_SERVE_STALE=1)."""
+     p = _path(key)
+     if not p.exists():
+         return None
+-    if time.time() - p.stat().st_mtime > max_age_sec:
+-        return None
+     try:
+-        return json.loads(p.read_text())
++        obj = json.loads(p.read_text())
+     except Exception:
+         return None
++    if isinstance(obj, dict) and _ENVELOPE_KEY in obj:
++        if SERVE_STALE or (_now() - float(obj[_ENVELOPE_KEY])) <= max_age_sec:
++            return obj.get(_ENVELOPE_VAL)
++        return None
++    # legacy, un-enveloped payload: age unknowable -> stale by default
++    return obj if SERVE_STALE else None
+ 
+ 
+ def put(key: str, value) -> bool:
+     try:
+-        _path(key).write_text(json.dumps(value, default=str))
++        envelope = {_ENVELOPE_KEY: _now(), _ENVELOPE_VAL: value}
++        _path(key).write_text(json.dumps(envelope, default=str))
+         return True
+     except Exception:
+         return False
+@@ -76,6 +134,9 @@ def delete(key: str) -> None:
+         p = _path(key, ext)
+         if p.exists():
+             p.unlink()
++    mp = _meta_path(key)
++    if mp.exists():
++        mp.unlink()
+ 
+ 
+ # --------------------------------------------------------------------------- #
+@@ -86,8 +147,12 @@ def get_df(key: str, max_age_sec: int = DAY):
+     p = _path(key, "parquet")
+     if not p.exists():
+         return None
+-    if time.time() - p.stat().st_mtime > max_age_sec:
+-        return None
++    ts = _embedded_ts(key)
++    if not SERVE_STALE:
++        if ts is None:                       # legacy parquet without sidecar
++            return None
++        if _now() - ts > max_age_sec:
++            return None
+     try:
+         return pd.read_parquet(p)
+     except Exception:
+@@ -97,6 +162,7 @@ def get_df(key: str, max_age_sec: int = DAY):
+ def put_df(key: str, df) -> bool:
+     try:
+         df.to_parquet(_path(key, "parquet"))
++        _meta_path(key).write_text(json.dumps({_ENVELOPE_KEY: _now()}))
+         return True
+     except Exception:
+         return False
+@@ -106,6 +172,10 @@ def put_df(key: str, df) -> bool:
+ # Freshness introspection (used by the UI to show "data as of …")
+ # --------------------------------------------------------------------------- #
+ def as_of(key: str):
++    ts = _embedded_ts(key)
++    if ts is not None:
++        return dt.datetime.fromtimestamp(ts)
++    # legacy fallback: mtime (unreliable after a git checkout — see header)
+     for ext in ("json", "parquet"):
+         p = _path(key, ext)
+         if p.exists():
+diff --git a/data_layer.py b/data_layer.py
+index 3ad9db7..36d0254 100644
+--- a/data_layer.py
++++ b/data_layer.py
+@@ -393,7 +393,8 @@ def fetch_market(tickers):
+ 
+     if close is None or getattr(close, "empty", True):
+         empty = pd.DataFrame(index=pd.DatetimeIndex([]))
+-        return {"returns": empty, "betas": {tk: None for tk in tickers},
++        return {"returns": empty, "close": empty,
++                "betas": {tk: None for tk in tickers},
+                 "adv": {tk: None for tk in tickers},
+                 "dyield": pd.Series(dtype=float), "benchmark": BENCHMARK}
+ 
+@@ -433,7 +434,7 @@ def fetch_market(tickers):
+     except Exception:
+         dyield = pd.Series(0.0, index=rets.index)
+ 
+-    return {"returns": rets, "betas": betas, "adv": adv,
++    return {"returns": rets, "close": close, "betas": betas, "adv": adv,
+             "dyield": dyield, "benchmark": BENCHMARK}
+ 
+ 
+@@ -458,11 +459,38 @@ def load_universe(tickers, rf=None, erp=DEFAULT_ERP, terminal=DEFAULT_TERMINAL):
+     mkt = fetch_market(tuple(tickers))
+     betas = mkt["betas"]
+     rets = mkt["returns"]
++    close_px = mkt.get("close")          # raw price LEVELS from this run's pull
+     close = (1 + rets).cumprod() if not rets.empty else rets
+ 
+     for tk in tickers:
+         row = rows_by_tk[tk]
+         row["_beta"] = betas.get(tk)
++
++        # ---- spot price DECOUPLED from the fundamentals cache ---------------
++        # fast_info["last_price"] rides the once-daily fund:{ticker} row, so a
++        # cached row (or a failed live fetch) used to pin px/cap to an old
++        # price while the history matrix moved on. The headline price is now
++        # the last valid close of the history pulled THIS run, so it can never
++        # lag the history, and every row carries an explicit price_asof.
++        row["price_asof"] = None
++        row["price_stale"] = False
++        if close_px is not None and not close_px.empty and tk in close_px.columns:
++            s_px = close_px[tk].dropna()
++            if not s_px.empty:
++                spot = float(s_px.iloc[-1])
++                asof = s_px.index[-1]
++                row["_price"] = spot
++                row["price_asof"] = (asof.date().isoformat()
++                                     if hasattr(asof, "date") else str(asof))
++                if row.get("_shares"):
++                    row["_mktcap"] = row["_shares"] * spot   # keep cap = px × sh
++                latest = close_px.index[-1]
++                row["price_stale"] = bool(asof < latest)     # ticker lags board
++        if row["price_asof"] is None:
++            # No history for this name this run: whatever price survives is the
++            # cached fundamentals one — mark it stale instead of passing it off
++            # as current.
++            row["price_stale"] = True
+         row["mom_12_1"] = _momentum(close, tk, MOM_12, MOM_SKIP)
+         row["mom_6_1"] = _momentum(close, tk, MOM_6, MOM_SKIP)
+         # short-term reversal: most-recent 1-week and 1-month returns (the
+diff --git a/export_snapshot.py b/export_snapshot.py
+index 52427fc..900c023 100644
+--- a/export_snapshot.py
++++ b/export_snapshot.py
+@@ -22,6 +22,7 @@ from __future__ import annotations
+ import datetime as dt
+ import json
+ import math
++import os
+ import sys
+ 
+ import numpy as np
+@@ -40,6 +41,13 @@ MOS_IMPLAUSIBLE = 300.0           # same sanity flag as App.py
+ RETURN_DAYS = 250                 # trailing window shipped to the site
+ OUT_PATH = "snapshot.json"
+ 
++# ---- staleness gate ---------------------------------------------------------
++# Fail the export (non-zero exit -> red Action) if the newest price date in
++# the whole board is more than STALE_MAX_CAL_DAYS calendar days behind the run
++# date (spans weekends + a holiday). Individually lagging tickers are listed
++# loudly and flagged in the JSON, but do not fail the run on their own.
++STALE_MAX_CAL_DAYS = int(os.environ.get("STALE_MAX_CAL_DAYS", "4"))
++
+ 
+ def _clean(x, nd=4):
+     """JSON-safe float: round, and map nan/inf to None."""
+@@ -134,6 +142,8 @@ def main() -> int:
+             "tk": tk,
+             "sec": sec_idx.get(r.get("sector") or "Unknown", 0),
+             "px": _clean(s["price"], 2), "cap": _clean(s["market_cap"], 0),
++            "px_asof": r.get("price_asof"),
++            "px_stale": bool(r.get("price_stale")),
+             "sh": _clean(s["shares"], 0), "cash": _clean(s["cash"], 0),
+             "debt": _clean(s["debt"], 0), "fcf": _clean(s["fcf"], 0),
+             "beta": _clean(s["beta"], 2),
+@@ -157,8 +167,31 @@ def main() -> int:
+         mat = tail[cols].fillna(0.0).round(4).values.T.tolist()
+         returns_block = {"cols": cols, "m": mat, "days": int(len(tail))}
+ 
++    # ---- validation gate: never ship a snapshot that pretends to be fresh ----
++    asof_dates = [s["px_asof"] for s in stocks if s.get("px_asof")]
++    board_latest = max(asof_dates) if asof_dates else None
++    laggards = [s["tk"] for s in stocks
++                if s.get("px_stale") or (board_latest and s.get("px_asof")
++                                         and s["px_asof"] < board_latest)]
++    if laggards:
++        print(f"[export] WARNING: {len(laggards)} tickers lag the board "
++              f"(board latest {board_latest}): {', '.join(sorted(laggards))}")
++    if board_latest is None:
++        print("[export] ERROR: no price dates at all — refusing to export.")
++        return 1
++    lag_days = (started.date() - dt.date.fromisoformat(board_latest)).days
++    print(f"[export] board price date {board_latest} · run date "
++          f"{started.date()} · lag {lag_days}d (max {STALE_MAX_CAL_DAYS}d)")
++    if lag_days > STALE_MAX_CAL_DAYS:
++        print(f"[export] ERROR: board is {lag_days} calendar days stale "
++              f"(> {STALE_MAX_CAL_DAYS}). The price cache is not refreshing — "
++              f"refusing to export a snapshot that pretends to be current.")
++        return 1
++
+     snap = {
+         "as_of": started.isoformat(timespec="minutes"),
++        "px_asof": board_latest,
++        "px_laggards": sorted(laggards),
+         "rf": _clean(rf), "benchmark": payload.get("benchmark"),
+         "sectors": sector_names,
+         "n_valued": n_valued,
