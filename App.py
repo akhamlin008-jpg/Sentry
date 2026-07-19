@@ -14,6 +14,15 @@ All finance math still lives in dcf_core.py (no streamlit/yfinance there).
 """
 from __future__ import annotations
 
+import os
+
+# The deployed app is a READ-ONLY consumer of the committed .cache: it must
+# serve whatever the refresh Action last committed (showing its true age via
+# kv.as_of) rather than live-fetch at request time when the TTL has lapsed —
+# e.g. over a weekend. The refresh Action leaves this unset, so IT still
+# refetches on real TTL expiry. Set DCF_CACHE_SERVE_STALE=0 to override.
+os.environ.setdefault("DCF_CACHE_SERVE_STALE", "1")
+
 import pandas as pd
 import streamlit as st
 
