@@ -4,6 +4,11 @@ name: refresh-data
 # Streamlit app reads pre-fetched files instead of calling Yahoo at request time.
 # A batch job only has to succeed ONCE per run (and retries next run), which is
 # far more reliable than a live app that must succeed on every page load.
+#
+# NEW: after the fetch, export_snapshot.py distills the warm cache into ONE
+# static snapshot.json for the 3D holodeck front-end. The site fetches that
+# file from raw.githubusercontent.com (or same-repo GitHub Pages), so the
+# whole front-end self-updates at this Action's cadence with zero servers.
 
 on:
   schedule:
@@ -13,7 +18,7 @@ on:
   workflow_dispatch: {}   # manual "Run workflow" button
 
 permissions:
-  contents: write          # needed to commit the refreshed cache
+  contents: write          # needed to commit the refreshed cache + snapshot
 
 concurrency:
   group: refresh-data
@@ -38,16 +43,23 @@ jobs:
           # ZERO-EDIT DEFAULT: USE_EDGAR=0 runs on Yahoo and needs no email.
           # To enable SEC EDGAR fundamentals (US filers), set USE_EDGAR to "1"
           # AND put a real contact email in EDGAR_USER_AGENT below (EDGAR 403s
-          # blank/placeholder emails). EDGAR is the more reliable source but
-          # requires that one edit — that's the only required edit in the repo.
+          # blank/placeholder emails).
           USE_EDGAR: "1"
           EDGAR_USER_AGENT: "Sentry akhamlin008@gmail.com"
           INCLUDE_HOLDERS_INSIDER: "0"
           DCF_CACHE_DIR: ".cache"
         run: python fetch_snapshot.py
 
-      - name: Commit refreshed cache
+      - name: Export site snapshot (snapshot.json for the 3D front-end)
+        env:
+          USE_EDGAR: "1"
+          EDGAR_USER_AGENT: "Sentry akhamlin008@gmail.com"
+          INCLUDE_HOLDERS_INSIDER: "0"
+          DCF_CACHE_DIR: ".cache"
+        run: python export_snapshot.py
+
+      - name: Commit refreshed cache + snapshot
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
           commit_message: "chore: data refresh"
-          file_pattern: ".cache/**"
+          file_pattern: ".cache/** snapshot.json"
