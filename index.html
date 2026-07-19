@@ -2,20 +2,20 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>SENTRY · Holodeck</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700&family=Rajdhani:wght@400;500;600;700&family=Share+Tech+Mono&display=swap" rel="stylesheet">
 <style>
 :root{
-  --void:#020610; --panel:rgba(4,14,26,.82); --panel-line:#0e3350;
+  --void:#020610; --panel:rgba(4,14,26,.84); --panel-line:#0e3350;
   --stark:#3ec6ff; --stark-hi:#b8ecff; --stark-dim:#0b2a40;
   --bear:#ff4757; --amber:#ffb454; --text:#9fd2ec; --text-dim:#4e7f9d;
   --mono:'Share Tech Mono',monospace; --ui:'Rajdhani',sans-serif; --disp:'Orbitron',sans-serif;
 }
 *{box-sizing:border-box;margin:0;padding:0}
-html,body{height:100%;overflow:hidden;background:var(--void);color:var(--text);font-family:var(--ui)}
-canvas#gl{position:fixed;inset:0;display:block}
+html,body{height:100%;overflow:hidden;background:var(--void);color:var(--text);font-family:var(--ui);overscroll-behavior:none}
+canvas#gl{position:fixed;inset:0;display:block;touch-action:none}
 button{font-family:var(--ui);cursor:pointer}
 :focus-visible{outline:1px solid var(--stark);outline-offset:2px}
 
@@ -36,11 +36,11 @@ button{font-family:var(--ui);cursor:pointer}
   letter-spacing:.22em;padding:7px 14px;transition:background .2s}
 #backBtn:hover{background:rgba(62,198,255,.12)}
 #hint{position:absolute;bottom:22px;left:50%;transform:translateX(-50%);font-family:var(--mono);
-  font-size:10px;letter-spacing:.2em;color:var(--text-dim);white-space:nowrap}
+  font-size:10px;letter-spacing:.2em;color:var(--text-dim);white-space:nowrap;max-width:96vw;overflow:hidden;text-overflow:ellipsis}
 #hint b{color:var(--stark);font-weight:400}
-#legend{position:absolute;bottom:56px;left:60px;font-family:var(--mono);font-size:10px;letter-spacing:.12em;display:none}
-#legend .row{display:flex;align-items:center;gap:8px;margin-top:6px}
-#legend .sw{width:22px;height:3px}
+#legend{position:absolute;bottom:56px;left:60px;font-family:var(--mono);font-size:10px;letter-spacing:.12em;display:none;max-width:330px}
+#legend .row{display:flex;align-items:center;gap:8px;margin-top:6px;line-height:1.5}
+#legend .sw{width:22px;height:3px;flex:none}
 #carouselNav{position:absolute;bottom:52px;left:50%;transform:translateX(-50%);display:none;gap:10px}
 #carouselNav .dot{width:7px;height:7px;transform:rotate(45deg);border:1px solid var(--text-dim);transition:.25s}
 #carouselNav .dot.on{background:var(--stark);border-color:var(--stark);box-shadow:0 0 10px var(--stark)}
@@ -57,6 +57,7 @@ button{font-family:var(--ui);cursor:pointer}
 .lbl .ds{font-family:var(--mono);font-size:9px;letter-spacing:.2em;color:var(--text-dim);margin-top:3px}
 .lbl.terr .nm{font-size:9px;letter-spacing:.3em;color:var(--stark);opacity:.9}
 .lbl.terr .ds{font-size:8px}
+.lbl.tick .nm{font-size:8.5px;letter-spacing:.18em;color:var(--text)}
 .ring{position:fixed;transform:translate(-50%,-50%);pointer-events:none;z-index:3;border-radius:50%;transition:opacity .3s}
 .ring::before{content:'';position:absolute;inset:0;border-radius:50%;
   background:conic-gradient(var(--stark) calc(var(--p)*1%), rgba(62,198,255,.12) 0);
@@ -82,6 +83,19 @@ button{font-family:var(--ui);cursor:pointer}
 .badge.under{color:var(--stark);border-color:var(--stark);background:rgba(62,198,255,.08)}
 .badge.over{color:var(--bear);border-color:var(--bear);background:rgba(255,71,87,.08)}
 .flag{font-family:var(--mono);font-size:9px;color:var(--amber);margin-top:6px;letter-spacing:.05em;line-height:1.5}
+.rowlist .r{display:grid;grid-template-columns:52px 1fr 58px;gap:8px;align-items:center;
+  font-family:var(--mono);font-size:10px;letter-spacing:.05em;padding:6px 8px;margin:2px 0;
+  border:1px solid transparent;cursor:pointer;color:var(--text)}
+.rowlist .r:hover,.rowlist .r.on{border-color:var(--panel-line);background:rgba(62,198,255,.07);color:var(--stark-hi)}
+.rowlist .r b{font-weight:400}
+.rowlist .r .bar{height:4px;background:var(--stark-dim);position:relative}
+.rowlist .r .bar i{position:absolute;top:0;bottom:0;left:0;background:var(--stark)}
+.range{position:relative;height:22px;margin:8px 0 2px}
+.range .tr{position:absolute;left:0;right:0;top:10px;height:2px;background:var(--stark-dim)}
+.range .band{position:absolute;top:8px;height:6px;background:rgba(62,198,255,.25);border:1px solid rgba(62,198,255,.5)}
+.range .pxm{position:absolute;top:4px;width:2px;height:14px;background:var(--amber);box-shadow:0 0 8px var(--amber)}
+.range .fvm{position:absolute;top:4px;width:2px;height:14px;background:var(--stark-hi)}
+.rangecap{display:flex;justify-content:space-between;font-family:var(--mono);font-size:8.5px;color:var(--text-dim);letter-spacing:.06em}
 
 .ctl{margin:11px 0}
 .ctl label{display:flex;justify-content:space-between;font-family:var(--mono);font-size:10px;
@@ -89,12 +103,12 @@ button{font-family:var(--ui);cursor:pointer}
 .ctl label output{color:var(--stark-hi)}
 input[type=range]{-webkit-appearance:none;width:100%;height:16px;background:transparent}
 input[type=range]::-webkit-slider-runnable-track{height:2px;background:linear-gradient(90deg,var(--stark) var(--f,50%),var(--stark-dim) var(--f,50%))}
-input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:10px;height:10px;margin-top:-4px;
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:12px;height:12px;margin-top:-5px;
   background:var(--void);border:1.5px solid var(--stark);transform:rotate(45deg);box-shadow:0 0 8px rgba(62,198,255,.8)}
 input[type=range]::-moz-range-track{height:2px;background:var(--stark-dim)}
-input[type=range]::-moz-range-thumb{width:9px;height:9px;background:var(--void);border:1.5px solid var(--stark);border-radius:0;transform:rotate(45deg)}
-select,input[type=number]{background:#04101d;border:1px solid var(--panel-line);color:var(--stark-hi);
-  font-family:var(--mono);font-size:11px;padding:5px 8px;width:100%}
+input[type=range]::-moz-range-thumb{width:10px;height:10px;background:var(--void);border:1.5px solid var(--stark);border-radius:0;transform:rotate(45deg)}
+select,input[type=number],input[type=text].fui{background:#04101d;border:1px solid var(--panel-line);color:var(--stark-hi);
+  font-family:var(--mono);font-size:11px;padding:6px 8px;width:100%}
 .tgl{display:flex;align-items:center;gap:9px;font-family:var(--mono);font-size:10px;letter-spacing:.1em;
   color:var(--text-dim);cursor:pointer;margin:10px 0}
 .tgl .sw{width:26px;height:13px;border:1px solid var(--stark-dim);position:relative;transition:.2s}
@@ -103,7 +117,7 @@ select,input[type=number]{background:#04101d;border:1px solid var(--panel-line);
 .tgl input:checked + .sw{border-color:var(--stark)}
 .tgl input:checked + .sw::after{left:15px;background:var(--stark);box-shadow:0 0 6px var(--stark)}
 .chips{display:flex;flex-wrap:wrap;gap:5px;margin:8px 0}
-.chip{font-family:var(--mono);font-size:9px;letter-spacing:.08em;padding:3px 8px;border:1px solid var(--stark-dim);
+.chip{font-family:var(--mono);font-size:9px;letter-spacing:.08em;padding:4px 9px;border:1px solid var(--stark-dim);
   color:var(--text-dim);background:transparent}
 .chip.on{border-color:var(--stark);color:var(--stark-hi);background:rgba(62,198,255,.1)}
 .bars .b{display:grid;grid-template-columns:118px 1fr 42px;gap:8px;align-items:center;
@@ -121,7 +135,7 @@ select,input[type=number]{background:#04101d;border:1px solid var(--panel-line);
 #search input{width:100%;background:rgba(3,12,24,.95);border:1px solid var(--stark);color:var(--stark-hi);
   font-family:var(--mono);font-size:15px;letter-spacing:.14em;padding:13px 16px;box-shadow:0 0 40px rgba(62,198,255,.25)}
 #search .res{margin-top:8px;max-height:290px;overflow-y:auto;border:1px solid var(--panel-line);background:var(--panel)}
-#search .it{display:flex;justify-content:space-between;padding:8px 16px;font-family:var(--mono);font-size:11px;
+#search .it{display:flex;justify-content:space-between;padding:9px 16px;font-family:var(--mono);font-size:11px;
   letter-spacing:.08em;color:var(--text);cursor:pointer}
 #search .it.sel,#search .it:hover{background:rgba(62,198,255,.12);color:var(--stark-hi)}
 #search .it span{color:var(--text-dim);font-size:10px}
@@ -130,13 +144,14 @@ select,input[type=number]{background:#04101d;border:1px solid var(--panel-line);
 #warp{position:fixed;inset:0;z-index:15;pointer-events:none;opacity:0;display:grid;place-items:center;
   background:radial-gradient(circle at 50% 50%, rgba(62,198,255,.14), transparent 55%)}
 #warp .r{position:absolute;border:1px solid rgba(62,198,255,.6);border-radius:50%}
-#warp.go{animation:warpflash .8s ease-out}
-#warp.go .r{animation:ringout .8s cubic-bezier(.2,.7,.2,1)}
+#warp.go{animation:warpflash .9s ease-out}
+#warp.go .r{animation:ringout .9s cubic-bezier(.2,.7,.2,1)}
 @keyframes warpflash{0%{opacity:0}25%{opacity:1}100%{opacity:0}}
 @keyframes ringout{0%{width:40px;height:40px;opacity:1}100%{width:160vmax;height:160vmax;opacity:0}}
 #boot{position:fixed;inset:0;z-index:30;display:grid;place-items:center;background:var(--void);
   font-family:var(--mono);font-size:11px;letter-spacing:.3em;color:var(--stark);transition:opacity .5s}
 @media (prefers-reduced-motion:reduce){#warp.go,.ring::after{animation:none}}
+@media (max-width:820px){.dock{width:min(320px,88vw)}}
 </style>
 </head>
 <body>
@@ -164,32 +179,28 @@ select,input[type=number]{background:#04101d;border:1px solid var(--panel-line);
 
 <div class="dock right" id="dcfDock"></div>
 <div class="dock right" id="hexDock"></div>
+<div class="dock right" id="pulseDock"></div>
 <div class="dock left"  id="riskCtl"></div>
 <div class="dock right" id="riskOut"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script>
 /* =====================================================================
-   SENTRY HOLODECK v2
-   Live feed: snapshot.json produced by export_snapshot.py in the
-   refresh-data GitHub Action. Falls back to a simulated universe with the
-   identical schema if the fetch fails, so the site never shows a blank.
+   SENTRY HOLODECK v3
    ===================================================================== */
 const SNAPSHOT_URLS=[
   './snapshot.json',
   'https://raw.githubusercontent.com/akhamlin008-jpg/Sentry/main/snapshot.json'
 ];
 
-/* ---------- utils ---------- */
 function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}
 const rng=mulberry32(20260718);
 function gauss(){let u=0,v=0;while(!u)u=rng();while(!v)v=rng();return Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*v)}
 const clamp=(x,a,b)=>Math.max(a,Math.min(b,x));
 const lerp=(a,b,t)=>a+(b-a)*t;
-const ease=t=>1-Math.pow(1-t,3);
+const smoothstep=t=>t*t*t*(t*(t*6-15)+10);
 const el=id=>document.getElementById(id);
 
-/* ---------- factor model (mirrors factor_core.DEFAULT_GROUP_WEIGHTS) ---- */
 const FWEIGHTS={value:.25,quality:.25,growth:.20,momentum:.15,dcf:.15,meanRev:0};
 const FAXES=["value","growth","momentum","dcf","quality","meanRev"];
 const RF=0.043, ERP=0.045, GT=0.025;
@@ -206,12 +217,20 @@ function twoStageDCF(fcf0,g1,g2,gt,r,cash,debt,shares){
   if(Math.abs(cash-debt)>0.25*ev) flags.push("Net cash/debt is large vs EV — balance sheet drives the price.");
   return {fair:eq/shares,ev,pvtv,tvf,flags};
 }
+/* engine scenarios (NOT analyst forecasts): bear / base / bull assumption sets */
+function scenFair(st){
+  const base=st.dcf&&st.dcf.fair?st.dcf.fair:null;
+  const lo=twoStageDCF(st.fcf,st.g1-0.03,st.g2-0.02,st.gt,st.r+0.015,st.cash,st.debt,st.shares);
+  const hiR=Math.max(st.r-0.015,st.gt+0.01);
+  const hi=twoStageDCF(st.fcf,st.g1+0.03,st.g2+0.02,st.gt,hiR,st.cash,st.debt,st.shares);
+  return {low:lo.fair||null,base,high:hi.fair||null};
+}
 
-/* ---------- data: simulated fallback, then live override ---------------- */
+/* ---------- data ---------- */
 let SECTORS=["Communication Services","Consumer Discretionary","Consumer Staples","Energy","Financials","Health Care","Industrials","Information Technology","Materials","Real Estate","Utilities"];
 const RAWTK='ABT|5,ADBE|7,ADI|7,ALB|8,ALGN|5,ALL|4,AMD|7,AMGN|5,ANET|7,AON|4,AOS|6,APH|7,ARE|9,AVGO|7,AVY|8,BA|6,BAX|5,BBY|1,BDX|5,BRK-B|4,BSX|5,CAG|2,CARR|6,CASY|2,CAT|6,CB|4,CBRE|9,CCL|1,CF|8,CHD|2,CIEN|7,CME|4,CMG|1,CMI|6,COHR|7,COO|5,COP|3,CPAY|4,CPT|9,CSCO|7,CSGP|9,DHI|1,DOC|9,DPZ|1,DTE|10,DVN|3,DXCM|5,ECHO|0,EIX|10,EME|6,EOG|3,ESS|9,ETR|10,FANG|3,FCX|8,FISV|4,FTNT|7,GEHC|5,GEN|7,GL|4,GOOG|0,GOOGL|0,GRMN|1,HBAN|4,HCA|5,HON|6,HOOD|4,HPE|7,HRL|2,ICE|4,IT|7,J|6,JBHT|6,JNJ|5,KEY|4,KHC|2,KO|2,L|4,LDOS|6,LEN|1,LHX|6,LIN|8,LLY|5,LMT|6,LNT|10,LYB|8,MDLZ|2,MET|4,MO|2,MRK|5,NDAQ|4,NFLX|0,NRG|10,NUE|8,NWS|0,NWSA|0,NXPI|7,ODFL|6,OKE|3,PANW|7,PCG|10,PHM|1,PLTR|7,PNC|4,PNR|6,PODD|5,PRU|4,PSX|3,PTC|7,RCL|1,REG|9,RL|1,ROK|6,ROST|1,RSG|6,RTX|6,SBAC|9,SCHW|4,SJM|2,SLB|3,SO|10,SPGI|4,TKO|0,TPR|1,TRMB|7,TROW|4,TT|6,TXN|7,UBER|6,UNP|6,VEEV|5,VMC|8,VTRS|5,VZ|0,WDAY|7,WEC|10,WFC|4,WM|6,WSM|1,XOM|3,XYL|6';
 let STOCKS=[], BY_SECTOR=[], SECSTAT=[], LIVE=false, AS_OF=null;
-let DAYS=250, LIVE_RET=null;   // {idx:{tk:i}, m:[[...]]}
+let DAYS=250, LIVE_RET=null, MOS_P5=null, MOS_P95=null;
 
 function buildSimulated(){
   STOCKS=[];
@@ -244,7 +263,7 @@ function applySnapshot(j){
     const f={};
     FAXES.forEach(k=>{const src=k==='meanRev'?(o.f&&(o.f.reversal!=null?o.f.reversal:o.f.meanRev)):(o.f&&o.f[k]);f[k]=src!=null?src:null;});
     const g1=o.g1!=null?o.g1:0.08, g2=o.g2!=null?o.g2:g1*0.55, gt=o.gt!=null?o.gt:GT;
-    const r=o.r!=null?o.r:RF+ (o.beta!=null?o.beta:1)*ERP;
+    const r=o.r!=null?o.r:RF+(o.beta!=null?o.beta:1)*ERP;
     const dcf=o.fair!=null?{fair:o.fair,flags:o.flags||[],tvf:null}
       :twoStageDCF(o.fcf,g1,g2,gt,r,o.cash||0,o.debt||0,o.sh);
     STOCKS.push({tk:o.tk,sector:o.sec,mkt:o.cap,price:o.px,
@@ -266,14 +285,26 @@ function finalizeData(){
   BY_SECTOR.forEach(a=>a.sort((x,y)=>y.mkt-x.mkt));
   SECSTAT=SECTORS.map((nm,i)=>{
     const a=BY_SECTOR[i];
-    if(!a.length) return {nm,i,mean:0,disp:0,mkt:0};
+    if(!a.length) return {nm,i,mean:0,disp:0,mkt:0,avgMos:null,pctUnder:null};
     const m=a.reduce((p,c)=>p+(c.comp||0),0)/a.length;
     const sd=Math.sqrt(a.reduce((p,c)=>p+((c.comp||0)-m)**2,0)/a.length);
-    return {nm,i,mean:m,disp:sd,mkt:a.reduce((p,c)=>p+c.mkt,0)};
+    const mv=a.filter(s=>s.mos!=null);
+    const avgMos=mv.length?mv.reduce((p,c)=>p+c.mos,0)/mv.length:null;
+    const pctUnder=mv.length?mv.filter(s=>s.mos>0).length/mv.length*100:null;
+    return {nm,i,mean:m,disp:sd,mkt:a.reduce((p,c)=>p+c.mkt,0),avgMos,pctUnder,nValued:mv.length};
   });
+  const mosArr=STOCKS.filter(s=>s.mos!=null).map(s=>s.mos).sort((a,b)=>a-b);
+  if(mosArr.length>20){MOS_P5=mosArr[Math.floor(mosArr.length*0.05)];MOS_P95=mosArr[Math.floor(mosArr.length*0.95)];}
+}
+/* trailing cumulative return over k trading days, % */
+function cumRet(st,k){
+  const r=returnsFor(st); if(!r||r.length<k) k=r?r.length:0;
+  if(!k) return null;
+  let p=1; for(let i=r.length-k;i<r.length;i++) p*=(1+r[i]);
+  return (p-1)*100;
 }
 
-/* ---------- risk engine ---------- */
+/* ---------- risk math ---------- */
 let mktSeries=null; const retCache={};
 function returnsFor(st){
   if(LIVE_RET&&LIVE_RET.idx[st.tk]!=null) return LIVE_RET.m[LIVE_RET.idx[st.tk]];
@@ -322,8 +353,8 @@ function normInv(p){
    THREE
    ===================================================================== */
 const canvas=el('gl');
-const renderer=new THREE.WebGLRenderer({canvas,antialias:true,alpha:false});
-renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+const renderer=new THREE.WebGLRenderer({canvas,antialias:true,alpha:false,powerPreference:'high-performance'});
+renderer.setPixelRatio(Math.min(devicePixelRatio,1.75));
 const scene=new THREE.Scene(); scene.background=new THREE.Color(0x020610);
 scene.fog=new THREE.FogExp2(0x020610,0.0035);
 const camera=new THREE.PerspectiveCamera(55,1,0.1,4000);
@@ -339,7 +370,7 @@ const C_BLUE=new THREE.Color(0x3ec6ff), C_RED=new THREE.Color(0xff4757);
   scene.add(new THREE.Points(g,new THREE.PointsMaterial({color:0x9fd2ec,size:1.15,sizeAttenuation:true,transparent:true,opacity:0.7})));
 })();
 
-const groups={hub:new THREE.Group(),pulse:new THREE.Group(),dcf:new THREE.Group(),factor:new THREE.Group(),helix:new THREE.Group(),risk:new THREE.Group()};
+const groups={hub:new THREE.Group(),pulse:new THREE.Group(),dcfsec:new THREE.Group(),dcfsub:new THREE.Group(),factor:new THREE.Group(),helix:new THREE.Group(),risk:new THREE.Group()};
 for(const k in groups){groups[k].visible=false;scene.add(groups[k]);}
 
 const wireMat=o=>new THREE.LineBasicMaterial({color:0x3ec6ff,transparent:true,opacity:o});
@@ -348,20 +379,31 @@ function fib(n,r){const pts=[],ga=Math.PI*(3-Math.sqrt(5));
   for(let i=0;i<n;i++){const y=n===1?0:1-(i/(n-1))*2,rad=Math.sqrt(Math.max(0,1-y*y)),th=ga*i;
     pts.push(new THREE.Vector3(Math.cos(th)*rad*r,y*r,Math.sin(th)*rad*r));}
   return pts;}
+/* additive glow sprite */
+const glowTex=(()=>{const cv=document.createElement('canvas');cv.width=cv.height=64;
+  const g=cv.getContext('2d'),gr=g.createRadialGradient(32,32,0,32,32,32);
+  gr.addColorStop(0,'rgba(255,255,255,1)');gr.addColorStop(0.35,'rgba(255,255,255,.45)');gr.addColorStop(1,'rgba(255,255,255,0)');
+  g.fillStyle=gr;g.fillRect(0,0,64,64);return new THREE.CanvasTexture(cv);})();
+function glowSprite(color,scale){
+  const s=new THREE.Sprite(new THREE.SpriteMaterial({map:glowTex,color,transparent:true,
+    blending:THREE.AdditiveBlending,depthWrite:false,opacity:0.85}));
+  s.scale.setScalar(scale); return s;
+}
+function labelDiv(cls,html){const d=document.createElement('div');d.className='lbl '+cls;d.style.display='none';d.innerHTML=html;document.body.appendChild(d);return d;}
 
 /* =====================================================================
-   HUB — carousel of 4 portals on a ring (counter-clockwise panning)
+   HUB carousel
    ===================================================================== */
 const PORTALS=[
   {id:'pulse', nm:'MARKET PULSE', ds:'VOLUME · DIRECTION'},
-  {id:'dcf',   nm:'DCF ENGINE',   ds:'INTRINSIC VALUE LATTICE'},
+  {id:'dcf',   nm:'DCF ENGINE',   ds:'INTRINSIC VALUE · SECTORS'},
   {id:'factor',nm:'FACTOR HELIX', ds:'COMPOSITE × SECTOR'},
   {id:'risk',  nm:'RISK CONSOLE', ds:'VaR · STRESS · SIZING'},
 ];
 const RING_R=78;
 const carousel=new THREE.Group(); groups.hub.add(carousel);
 const portalMeshes=[];
-let hubIdx=0, ringRot=0, ringTarget=0, ringDragging=false;
+let hubIdx=0, ringRot=0, ringTarget=0;
 PORTALS.forEach((p,i)=>{
   const g=new THREE.Group(); p.baseAngle=i*Math.PI/2;
   const core=new THREE.Mesh(new THREE.SphereGeometry(11,32,32),
@@ -372,8 +414,8 @@ PORTALS.forEach((p,i)=>{
       new THREE.MeshBasicMaterial({color:rng()>0.42?0x3ec6ff:0xff4757}));
       m.position.copy(d).multiplyScalar(11);m.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0),d);g.add(m);}
   } else if(p.id==='dcf'){
-    const pts=fib(40,10.6);
-    g.add(new THREE.Points(new THREE.BufferGeometry().setFromPoints(pts),new THREE.PointsMaterial({color:0xb8ecff,size:1.4})));
+    g.add(new THREE.Points(new THREE.BufferGeometry().setFromPoints(fib(40,10.6)),
+      new THREE.PointsMaterial({color:0xb8ecff,size:1.4})));
   } else if(p.id==='factor'){
     const pts=[];for(let t=0;t<=60;t++){const u=t/60;pts.push(new THREE.Vector3(Math.cos(u*9)*6*(0.4+u*0.6),(u-0.5)*17,Math.sin(u*9)*6*(0.4+u*0.6)));}
     g.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts),wireMat(0.85)));
@@ -385,37 +427,34 @@ PORTALS.forEach((p,i)=>{
   p.group=g; carousel.add(g);
 });
 const labels=PORTALS.map(p=>{
-  const l=document.createElement('div');l.className='lbl';
-  l.innerHTML=`<div class="nm">${p.nm}</div><div class="ds">${p.ds}</div>`;document.body.appendChild(l);
+  const l=labelDiv('',`<div class="nm">${p.nm}</div><div class="ds">${p.ds}</div>`);
   const r=document.createElement('div');r.className='ring';document.body.appendChild(r);
   return {p,l,r,prog:0};
 });
 const navDots=PORTALS.map((p,i)=>{const d=document.createElement('div');d.className='dot'+(i===0?' on':'');
   el('carouselNav').appendChild(d);return d;});
-function stepCarousel(dir){ // dir +1 = counter-clockwise (swipe left / →)
+function stepCarousel(dir){
   hubIdx=(hubIdx+dir+4)%4;
   ringTarget+=dir*Math.PI/2;
   navDots.forEach((d,i)=>d.classList.toggle('on',i===hubIdx));
 }
 
 /* =====================================================================
-   PULSE — globe as a MAP: 11 sector territories, spikes rise from home turf
+   PULSE globe (map) + territory drill-down
    ===================================================================== */
-const pulseData=[], terrLabels=[], terrAnchors=[];
+const pulseData=[], terrLabels=[], terrAnchors=[], SECGEO=[];
 const PULSE_R=52;
 function buildPulse(){
   groups.pulse.add(wireSphere(PULSE_R,3,0.24), wireSphere(PULSE_R*0.65,1,0.10));
   const eq=new THREE.Mesh(new THREE.TorusGeometry(PULSE_R+0.4,0.07,6,120),
     new THREE.MeshBasicMaterial({color:0x3ec6ff,transparent:true,opacity:0.45}));
   eq.rotation.x=Math.PI/2; groups.pulse.add(eq);
-
   const seeds=fib(SECTORS.length,1);
   const maxN=Math.max(...BY_SECTOR.map(a=>a.length),1);
-  const capR=SECTORS.map((_,i)=>clamp(0.52*Math.sqrt(BY_SECTOR[i].length/maxN),0.18,0.52));
-  // territory coastlines + terrain dots tinted by sector strength
   const UP=new THREE.Vector3(0,1,0);
   SECTORS.forEach((nm,i)=>{
-    const seed=seeds[i], th=capR[i];
+    const seed=seeds[i], th=clamp(0.52*Math.sqrt(BY_SECTOR[i].length/maxN),0.18,0.52);
+    SECGEO.push({seed,th});
     const u=new THREE.Vector3().crossVectors(seed,Math.abs(seed.y)>0.9?new THREE.Vector3(1,0,0):UP).normalize();
     const v=new THREE.Vector3().crossVectors(seed,u).normalize();
     const ring=[];
@@ -437,17 +476,15 @@ function buildPulse(){
       new THREE.PointsMaterial({color:tint,size:0.8,transparent:true,opacity:0.5})));
     const anchor=new THREE.Object3D(); anchor.position.copy(seed).multiplyScalar(PULSE_R*1.16);
     groups.pulse.add(anchor); terrAnchors.push(anchor);
-    const lb=document.createElement('div');lb.className='lbl terr';lb.style.display='none';
-    lb.innerHTML=`<div class="nm">${nm.toUpperCase()}</div><div class="ds">${BY_SECTOR[i].length} NAMES · ${(SECSTAT[i].mean>0?'+':'')}${SECSTAT[i].mean.toFixed(2)}</div>`;
-    document.body.appendChild(lb); terrLabels.push(lb);
+    terrLabels.push(labelDiv('terr',`<div class="nm">${nm.toUpperCase()}</div>
+      <div class="ds">${BY_SECTOR[i].length} NAMES · ${(SECSTAT[i].mean>0?'+':'')}${SECSTAT[i].mean.toFixed(2)}</div>`));
   });
-  // spikes: each stock rises from its sector territory
   const base=new THREE.ConeGeometry(0.6,1,5); base.translate(0,0.5,0);
   const bp=base.attributes.position, bi=base.index.array;
   const positions=[],colors=[],idx=[]; let vOff=0;
   const q=new THREE.Quaternion(),mtx=new THREE.Matrix4(),tv=new THREE.Vector3();
   STOCKS.forEach(st=>{
-    const seed=seeds[st.sector], th=capR[st.sector];
+    const {seed,th}=SECGEO[st.sector];
     const u=new THREE.Vector3().crossVectors(seed,Math.abs(seed.y)>0.9?new THREE.Vector3(1,0,0):UP).normalize();
     const v=new THREE.Vector3().crossVectors(seed,u).normalize();
     for(let s=0;s<3;s++){
@@ -477,33 +514,118 @@ function buildPulse(){
     new THREE.MeshBasicMaterial({transparent:true,opacity:0,depthWrite:false}));
   groups.pulse.add(hit); groups.pulse.userData.sphere=hit;
 }
+/* territory dock: top movers + engine-scenario detail */
+const pulseDock=el('pulseDock');
+function fmtPct(v){return v==null?'—':(v>0?'+':'')+v.toFixed(1)+'%';}
+function openPulseDock(si){
+  const a=BY_SECTOR[si]; if(!a.length) return;
+  const byDir=a.slice().sort((x,y)=>y.dir-x.dir);
+  const bulls=byDir.slice(0,5), bears=byDir.slice(-5).reverse();
+  const row=s=>`<div class="r" data-tk="${s.tk}"><b>${s.tk}</b>
+    <div class="bar"><i style="width:${clamp(Math.abs(s.dir),0,1)*100}%;${s.dir<0?'background:#ff4757':''}"></i></div>
+    <span style="color:${s.dir>0?'#3ec6ff':'#ff4757'}">${(s.dir>0?'▲':'▼')} ${(Math.abs(s.dir)*100).toFixed(0)}</span></div>`;
+  pulseDock.style.display='block';
+  pulseDock.innerHTML=`<h2>${SECTORS[si].toUpperCase()}</h2>
+    <div class="sub">${a.length} NAMES · MEAN COMPOSITE ${(SECSTAT[si].mean>0?'+':'')}${SECSTAT[si].mean.toFixed(2)}</div>
+    <div class="sec">TOP 5 BULLS · 5-DAY DIRECTION</div>
+    <div class="rowlist">${bulls.map(row).join('')}</div>
+    <div class="sec">TOP 5 BEARS · 5-DAY DIRECTION</div>
+    <div class="rowlist">${bears.map(row).join('')}</div>
+    <div class="sec">DETAIL · HOVER OR TAP A NAME</div>
+    <div id="pulseDetail"><div class="flag">Select a ticker above for price history and the engine's valuation range.</div></div>`;
+  pulseDock.querySelectorAll('.r').forEach(r=>{
+    const show=()=>{pulseDock.querySelectorAll('.r').forEach(x=>x.classList.remove('on'));
+      r.classList.add('on');renderPulseDetail(STOCKS.find(s=>s.tk===r.dataset.tk));};
+    r.addEventListener('mouseenter',show); r.addEventListener('click',show);
+  });
+}
+function renderPulseDetail(st){
+  if(!st) return;
+  const p3=cumRet(st,63), p6=cumRet(st,126);
+  const sc=scenFair(st);
+  let rangeHtml='<div class="flag">⚠ Engine cannot value this name ('+(st.dcf.error||'insufficient data')+').</div>';
+  if(sc.low!=null&&sc.high!=null&&sc.base!=null){
+    const lo=Math.min(sc.low,sc.base,sc.high,st.price)*0.94, hi=Math.max(sc.low,sc.base,sc.high,st.price)*1.06;
+    const X=v=>clamp((v-lo)/(hi-lo),0,1)*100;
+    rangeHtml=`<div class="range">
+        <div class="tr"></div>
+        <div class="band" style="left:${X(sc.low)}%;width:${Math.max(X(sc.high)-X(sc.low),1)}%"></div>
+        <div class="fvm" style="left:${X(sc.base)}%"></div>
+        <div class="pxm" style="left:${X(st.price)}%"></div></div>
+      <div class="rangecap"><span>LOW $${sc.low.toFixed(0)}</span><span>BASE $${sc.base.toFixed(0)}</span><span>HIGH $${sc.high.toFixed(0)}</span></div>
+      <div class="krow" style="margin-top:8px"><span>PRICE (AMBER MARK)</span><span>$${st.price.toFixed(2)}</span></div>`;
+  }
+  el('pulseDetail').innerHTML=`
+    <div class="krow"><span>TICKER</span><span>${st.tk} · ${st.grade?('GRADE '+st.grade):''}</span></div>
+    <div class="krow"><span>PRICE / CAP</span><span>$${st.price.toFixed(2)} · $${(st.mkt/1e9).toFixed(0)}B</span></div>
+    <div class="krow"><span>BETA / TURNOVER σ</span><span>${st.beta.toFixed(2)} · ${st.volZ.toFixed(2)}</span></div>
+    <div class="krow"><span>3-MO RETURN</span><span style="color:${(p3||0)>=0?'#3ec6ff':'#ff4757'}">${fmtPct(p3)}</span></div>
+    <div class="krow"><span>6-MO RETURN</span><span style="color:${(p6||0)>=0?'#3ec6ff':'#ff4757'}">${fmtPct(p6)}</span></div>
+    <div class="sec">VALUATION RANGE · ENGINE SCENARIOS</div>
+    ${rangeHtml}
+    <div class="flag">Low/base/high are this engine's DCF under bear (growth −3pp, discount +1.5pp), pipeline, and bull (growth +3pp, discount −1.5pp) assumptions — model scenarios, not analyst forecasts.</div>`;
+}
 
 /* =====================================================================
-   DCF lattice
+   DCF ENGINE — Option A: sector sphere → company lattice
    ===================================================================== */
-const dcfNodes=[];
-let dcfHalo=null;
-function buildDcf(){
-  const R=58, pts=fib(STOCKS.length,R);
-  groups.dcf.add(wireSphere(R*1.06,2,0.10));
-  const nodeGeo=new THREE.OctahedronGeometry(1.15);
-  STOCKS.forEach((st,i)=>{
+const dcfSecNodes=[], dcfSecLabels=[], dcfSecAnchors=[];
+let dcfNodes=[], dcfHalo=null, dcfSubSector=-1;
+function buildDcfSectors(){
+  const R=50, pts=fib(SECTORS.length,R);
+  groups.dcfsec.add(wireSphere(R,1,0.30), wireSphere(R*1.28,0,0.10));
+  SECSTAT.forEach((ss,i)=>{
+    const t=ss.avgMos==null?0.5:clamp((ss.avgMos+40)/80,0,1);
+    const col=new THREE.Color().copy(C_RED).lerp(C_BLUE,t);
+    const size=2.2+clamp(Math.log10(Math.max(ss.mkt,1e9))-11,0,3)*1.1;
+    const m=new THREE.Mesh(new THREE.OctahedronGeometry(size),
+      new THREE.MeshBasicMaterial({color:col,transparent:true,opacity:0.95}));
+    m.position.copy(pts[i]); m.userData={dcfSector:i};
+    groups.dcfsec.add(m); dcfSecNodes.push(m);
+    m.add(glowSprite(col,size*4.4));
+    const an=new THREE.Object3D(); an.position.copy(pts[i]).multiplyScalar(1.28);
+    groups.dcfsec.add(an); dcfSecAnchors.push(an);
+    dcfSecLabels.push(labelDiv('terr',`<div class="nm">${ss.nm.toUpperCase()}</div>
+      <div class="ds">AVG MoS ${ss.avgMos==null?'—':fmtPct(ss.avgMos)} · ${ss.pctUnder==null?'—':ss.pctUnder.toFixed(0)+'% UNDER'}</div>`));
+  });
+}
+function openDcfSectorDock(){
+  dcfDock.style.display='block';
+  const rows=SECSTAT.slice().sort((a,b)=>(b.avgMos??-999)-(a.avgMos??-999));
+  dcfDock.innerHTML=`<h2>DCF ENGINE</h2><div class="sub">SECTOR AVERAGES · CLICK A NODE TO ENTER ITS LATTICE</div>
+    <div class="sec">AVG MARGIN OF SAFETY BY SECTOR</div>
+    <div class="bars">${rows.map(ss=>`<div class="b"><span>${ss.nm.slice(0,15).toUpperCase()}</span>
+      <div class="tr"><div class="fl" style="width:${ss.avgMos==null?0:clamp((ss.avgMos+60)/120,0,1)*100}%;${(ss.avgMos||0)<0?'background:#ff4757;box-shadow:0 0 8px rgba(255,71,87,.6)':''}"></div></div>
+      <span>${ss.avgMos==null?'—':fmtPct(ss.avgMos)}</span></div>`).join('')}</div>
+    <div class="krow" style="margin-top:10px"><span>GLOW (BLUE/RED)</span><span>MoS BEYOND P95 / P5</span></div>
+    <div class="flag">Averages skip names the engine can't value. Sector averages hide dispersion — enter the lattice before concluding anything.</div>`;
+}
+function buildDcfSub(si){
+  while(groups.dcfsub.children.length) groups.dcfsub.remove(groups.dcfsub.children[0]);
+  dcfNodes=[]; dcfSubSector=si;
+  const list=BY_SECTOR[si], R=Math.max(34,Math.sqrt(list.length)*7.5);
+  const pts=fib(list.length,R);
+  groups.dcfsub.add(wireSphere(R*1.08,2,0.10));
+  const nodeGeo=new THREE.OctahedronGeometry(1.25);
+  list.forEach((st,i)=>{
     const c=st.mos==null?new THREE.Color(0x4e7f9d):new THREE.Color().copy(C_RED).lerp(C_BLUE,clamp((st.mos+60)/120,0,1));
     const m=new THREE.Mesh(nodeGeo,new THREE.MeshBasicMaterial({color:c,transparent:true,opacity:0.95}));
-    m.position.copy(pts[i]); m.userData={st}; groups.dcf.add(m); dcfNodes.push(m);
+    m.position.copy(pts[i]); m.userData={st}; groups.dcfsub.add(m); dcfNodes.push(m);
+    if(st.mos!=null&&MOS_P5!=null&&(st.mos<=MOS_P5||st.mos>=MOS_P95))
+      m.add(glowSprite(st.mos>=MOS_P95?C_BLUE:C_RED,7.5));   // 95th-percentile extremes glow
   });
   const lp=[];
   pts.forEach((p,i)=>{
     const near=pts.map((q2,j)=>({j,d:p.distanceTo(q2)})).filter(o=>o.j!==i).sort((a,b)=>a.d-b.d).slice(0,3);
     near.forEach(o=>{if(o.j>i)lp.push(p,pts[o.j]);});
   });
-  groups.dcf.add(new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(lp),wireMat(0.22)));
+  groups.dcfsub.add(new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(lp),wireMat(0.22)));
   dcfHalo=new THREE.Mesh(new THREE.TorusGeometry(2.6,0.09,8,40),new THREE.MeshBasicMaterial({color:0xb8ecff}));
-  dcfHalo.visible=false; groups.dcf.add(dcfHalo);
+  dcfHalo.visible=false; groups.dcfsub.add(dcfHalo);
 }
 
 /* =====================================================================
-   FACTOR sectors -> helix
+   FACTOR — sector sphere → hexagonal PRISM helix (percentile-ordered)
    ===================================================================== */
 const sectorNodes=[];
 function buildFactor(){
@@ -526,150 +648,202 @@ let helixHexes=[], helixSector=-1;
 function buildHelix(si){
   while(groups.helix.children.length) groups.helix.remove(groups.helix.children[0]);
   helixHexes=[]; helixSector=si;
-  const ss=SECSTAT[si], list=BY_SECTOR[si];
-  const n=list.length, H=Math.max(58,n*5.2), turns=Math.max(2.5,n/5);
-  const strength=clamp((ss.mean+1)/2,0,1);
-  const baseR=lerp(7,20,strength);
+  const ss=SECSTAT[si];
+  /* order: LOWEST percentile at base → HIGHEST at tip (fallback: composite) */
+  const list=BY_SECTOR[si].slice().sort((a,b)=>((a.pct??((a.comp||0)*20+50))-(b.pct??((b.comp||0)*20+50))));
+  const n=list.length, STEP=5.6, H=n*STEP;              // constant z spacing
   const centers=[];
-  const hexShape=new THREE.Shape();
-  for(let k=0;k<6;k++){const a=Math.PI/3*k+Math.PI/6;
-    k?hexShape.lineTo(Math.cos(a),Math.sin(a)):hexShape.moveTo(Math.cos(a),Math.sin(a));}
-  const hexGeo=new THREE.ShapeGeometry(hexShape);
-  const edgeGeo=new THREE.EdgesGeometry(hexGeo);
   list.forEach((st,i)=>{
-    const u=n===1?0:i/(n-1);
-    const wob=1+ss.disp*Math.sin(u*10)*0.8;
-    const r=baseR*wob*lerp(1,0.55,u);
-    const ang=u*turns*2*Math.PI;
-    const pos=new THREE.Vector3(Math.cos(ang)*r,-H/2+u*H,Math.sin(ang)*r);
+    const pctN=clamp((st.pct??((st.comp||0)*20+50))/100,0,1);
+    const ang=i*0.62;                                    // steady spiral
+    const spiralR=lerp(5,22,pctN)*(1+ss.disp*0.35*Math.sin(i*0.9)); // expand w/ percentile; wobble = dispersion
+    const y=-H/2+i*STEP;
+    const pos=new THREE.Vector3(Math.cos(ang)*spiralR,y,Math.sin(ang)*spiralR);
     centers.push(pos);
-    const sc=lerp(5.5,1.8,u)*(0.8+0.4*clamp(Math.cbrt(st.mkt/1e9)/12,0,1));
+    const hexR=lerp(2.2,4.6,clamp(Math.cbrt(st.mkt/1e9)/11,0,1));
     const col=new THREE.Color().copy(C_RED).lerp(C_BLUE,clamp(((st.comp||0)+1.6)/3.2,0,1));
-    const face=new THREE.Mesh(hexGeo,new THREE.MeshBasicMaterial({color:col,transparent:true,opacity:0.30,side:THREE.DoubleSide}));
-    const edge=new THREE.LineSegments(edgeGeo,new THREE.LineBasicMaterial({color:col}));
-    const g=new THREE.Group(); g.add(face,edge);
-    g.position.copy(pos); g.scale.setScalar(sc);
-    g.lookAt(new THREE.Vector3(pos.x*2,pos.y,pos.z*2));
-    face.userData={st,helix:true};
-    groups.helix.add(g); helixHexes.push(face);
+    /* the prism: hexagonal slab with translucent walls + bright edges */
+    const geo=new THREE.CylinderGeometry(hexR,hexR,2.6,6,1);
+    const side=new THREE.MeshBasicMaterial({color:col,transparent:true,opacity:0.22,side:THREE.DoubleSide});
+    const cap=new THREE.MeshBasicMaterial({color:col,transparent:true,opacity:0.34,side:THREE.DoubleSide});
+    const prism=new THREE.Mesh(geo,[side,cap,cap]);
+    prism.position.copy(pos); prism.userData={st,helix:true};
+    const edges=new THREE.LineSegments(new THREE.EdgesGeometry(geo),new THREE.LineBasicMaterial({color:col,transparent:true,opacity:0.95}));
+    edges.position.copy(pos);
+    /* unique face: the stock's 6-factor radar etched into the top cap */
+    const rp=[];
+    FAXES.forEach((k,j)=>{const a=-Math.PI/2+j*2*Math.PI/6;
+      const v=st.f[k]==null?0:st.f[k];
+      const rr=hexR*0.82*clamp((v+2.6)/5.2,0.12,1);
+      rp.push(new THREE.Vector3(Math.cos(a)*rr,1.35,Math.sin(a)*rr));});
+    const radar=new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(rp),
+      new THREE.LineBasicMaterial({color:0xb8ecff,transparent:true,opacity:0.9}));
+    radar.position.copy(pos);
+    groups.helix.add(prism,edges,radar); helixHexes.push(prism);
   });
-  const curve=new THREE.CatmullRomCurve3(centers);
-  groups.helix.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(curve.getPoints(n*14)),
-    new THREE.LineBasicMaterial({color:0x3ec6ff,transparent:true,opacity:0.65})));
+  /* peer connectors — the lines that drive the expand/contract read */
+  for(let i=0;i<n-1;i++){
+    groups.helix.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints([
+      centers[i].clone().add(new THREE.Vector3(0,1.3,0)),
+      centers[i+1].clone().add(new THREE.Vector3(0,-1.3,0))]),
+      new THREE.LineBasicMaterial({color:0x3ec6ff,transparent:true,opacity:0.6})));
+  }
   groups.helix.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(
     [new THREE.Vector3(0,-H/2-6,0),new THREE.Vector3(0,H/2+6,0)]),wireMat(0.18)));
+  return H;
 }
 
-/* risk backdrop web */
-let riskWeb=null;
-function buildRiskWeb(book,S){
+/* =====================================================================
+   RISK — chord wheel (observable by construction)
+   ===================================================================== */
+let riskWeb=null, riskLabels=[], riskAnchors=[];
+function buildRiskWeb(book,S,wpct){
   if(riskWeb) groups.risk.remove(riskWeb);
+  riskLabels.forEach(l=>l.remove()); riskLabels=[]; riskAnchors=[];
   riskWeb=new THREE.Group();
-  const pts=fib(book.length,26);
+  const n=book.length, R=27;
+  const pts=book.map((_,i)=>{const a=-Math.PI/2+i*2*Math.PI/n;
+    return new THREE.Vector3(Math.cos(a)*R,Math.sin(a)*R,0);});
+  riskWeb.add(new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(
+    book.map((_,i)=>{const a=i*2*Math.PI/n;return new THREE.Vector3(Math.cos(a)*R*1.18,Math.sin(a)*R*1.18,0);})),
+    wireMat(0.18)));
   const sd=S.map((r,i)=>Math.sqrt(S[i][i]));
   book.forEach((st,i)=>{
-    const m=new THREE.Mesh(new THREE.OctahedronGeometry(1.7),new THREE.MeshBasicMaterial({color:0x3ec6ff}));
+    const size=1.1+clamp(wpct[i]/0.30,0,1)*2.2;          // node size = position weight
+    const m=new THREE.Mesh(new THREE.OctahedronGeometry(size),new THREE.MeshBasicMaterial({color:0x3ec6ff}));
     m.position.copy(pts[i]); riskWeb.add(m);
+    const an=new THREE.Object3D(); an.position.copy(pts[i]).multiplyScalar(1.34); riskWeb.add(an);
+    riskAnchors.push(an);
+    riskLabels.push(labelDiv('tick',`<div class="nm">${st.tk}</div>`));
   });
-  for(let i=0;i<book.length;i++)for(let j=i+1;j<book.length;j++){
+  for(let i=0;i<n;i++)for(let j=i+1;j<n;j++){
     const c=S[i][j]/(sd[i]*sd[j]);
-    if(Math.abs(c)<0.25) continue;
+    if(Math.abs(c)<0.25) continue;                        // chords only when |ρ| ≥ 0.25
     riskWeb.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints([pts[i],pts[j]]),
-      new THREE.LineBasicMaterial({color:c>0?0x3ec6ff:0xff4757,transparent:true,opacity:clamp(Math.abs(c),0.12,0.85)})));
+      new THREE.LineBasicMaterial({color:c>0?0x3ec6ff:0xff4757,transparent:true,
+        opacity:clamp((Math.abs(c)-0.15)*1.2,0.15,0.95)})));
   }
   groups.risk.add(riskWeb);
 }
 
 /* =====================================================================
-   NAVIGATION — modes, first-person explode transitions
+   NAVIGATION — smoothed camera, explode transitions, universal W/S zoom
    ===================================================================== */
 let MODE='hub', SUB='';
-const cam={yaw:0,pitch:0.1,dist:190,ty:0,fly:false,pos:new THREE.Vector3(0,0,150),quat:new THREE.Quaternion()};
-const MODE_DIST={pulse:150,factor:135,helix:110,risk:95};
+const cam={yaw:0,pitch:0.1,dist:190,ty:0, yawT:0,pitchT:0.1,distT:190,tyT:0,
+  fly:false,pos:new THREE.Vector3(0,0,150),posT:new THREE.Vector3(0,0,150),quat:new THREE.Quaternion()};
+const MODE_DIST={pulse:150,dcfsec:130,factor:135,helix:120,risk:92};
+const ZLIM={pulse:[62,340],dcfsec:[55,300],factor:[55,300],helix:[35,240],risk:[45,220]};
+function setOrbit(dist,yaw,pitch,ty){cam.dist=cam.distT=dist;cam.yaw=cam.yawT=yaw;
+  cam.pitch=cam.pitchT=pitch;cam.ty=cam.tyT=ty||0;}
 const HINTS={
-  hub:'<b>SWIPE / ◂ ▸</b> ROTATE CAROUSEL · <b>CLICK / ENTER</b> DIVE IN',
-  pulse:'<b>DRAG</b> ROTATE · <b>SCROLL</b> ZOOM · <b>HOVER</b> SPIKE READOUT · <b>ESC</b> RETURN',
-  dcf:'<b>DRAG</b> LOOK · <b>SCROLL / W S</b> TRAVERSE · <b>CLICK</b> NODE TO MODEL · <b>CTRL-F</b> LOCATE · <b>ESC</b> RETURN',
-  factor:'<b>CLICK</b> A SECTOR HELIX TO EXPAND · <b>DRAG</b> ORBIT · <b>ESC</b> RETURN',
-  helix:'<b>DRAG</b> ORBIT · <b>SCROLL</b> CLIMB · <b>CLICK</b> HEX FACE FOR COMPOSITE · <b>CTRL-F</b> LOCATE · <b>ESC</b> SECTORS',
-  risk:'ADJUST ASSUMPTIONS LEFT · READ THE BOOK RIGHT · <b>ESC</b> RETURN'
+  hub:'<b>SWIPE / SCROLL / ◂ ▸</b> ROTATE · <b>TAP / ENTER</b> DIVE IN',
+  pulse:'<b>DRAG</b> ROTATE · <b>W S / SCROLL / PINCH</b> ZOOM · <b>TAP TERRITORY</b> TOP MOVERS · <b>ESC</b> RETURN',
+  dcfsec:'<b>TAP SECTOR NODE</b> ENTER LATTICE · <b>W S</b> ZOOM · <b>ESC</b> RETURN',
+  dcfsub:'<b>DRAG</b> LOOK · <b>W S / SCROLL</b> TRAVERSE · <b>TAP NODE</b> MODEL · <b>CTRL-F</b> LOCATE · <b>ESC</b> SECTORS',
+  factor:'<b>TAP SECTOR</b> EXPAND HELIX · <b>W S</b> ZOOM · <b>ESC</b> RETURN',
+  helix:'<b>DRAG</b> ORBIT · <b>SCROLL</b> CLIMB · <b>TAP PRISM</b> COMPOSITE FACE · <b>CTRL-F</b> LOCATE · <b>ESC</b> SECTORS',
+  risk:'ASSUMPTIONS LEFT · BOOK RIGHT · <b>W S</b> ZOOM · <b>ESC</b> RETURN'
 };
 function titles(){return {hub:['SENTRY','SELECT A SYSTEM'],
   pulse:['MARKET PULSE','SECTOR TERRITORIES · RED BEAR / BLUE BULL'],
-  dcf:['DCF ENGINE','TWO-STAGE FCF · '+STOCKS.length+' NODES'],
+  dcfsec:['DCF ENGINE','SECTOR LATTICE · NODE COLOR = AVG MoS'],
+  dcfsub:['DCF ENGINE',(dcfSubSector>=0?SECTORS[dcfSubSector].toUpperCase():'')+' · GLOW = P95 EXTREME'],
   factor:['FACTOR HELIX',SECTORS.length+' GICS SECTORS · COMPOSITE INDEX'],
   helix:['FACTOR HELIX',''],risk:['RISK CONSOLE','VaR · STRESS · RISK-PARITY SIZING']};}
+function gkey(){return MODE==='dcf'?(SUB==='sub'?'dcfsub':'dcfsec'):(MODE==='factor'&&SUB==='helix')?'helix':MODE;}
 
 function setMode(m,sub){
   document.querySelectorAll('.dock').forEach(d=>d.style.display='none');
   tip.style.display='none';
   MODE=m; SUB=sub||'';
   for(const k in groups) groups[k].visible=false;
-  const gk=(m==='factor'&&sub==='helix')?'helix':m;
-  groups[gk].visible=true;
+  const gk=gkey(); groups[gk].visible=true;
   const T=titles();
   el('modeTitle').textContent=T[gk][0];
-  el('modeSub').textContent=sub==='helix'?SECTORS[helixSector].toUpperCase()+' · BASE→TIP BY MARKET CAP':T[gk][1];
+  el('modeSub').textContent=(gk==='helix')?SECTORS[helixSector].toUpperCase()+' · BASE→TIP BY PERCENTILE':T[gk][1];
   el('hint').innerHTML=HINTS[gk];
   el('backBtn').style.display=m==='hub'?'none':'block';
   el('carouselNav').style.display=m==='hub'?'flex':'none';
-  labels.forEach(o=>{o.l.style.opacity=m==='hub'?1:0;o.r.style.opacity=m==='hub'?1:0;});
+  labels.forEach(o=>{o.l.style.opacity=m==='hub'?1:0;o.r.style.opacity=m==='hub'?1:0;
+    if(m!=='hub'){o.l.style.display='none';o.r.style.display='none';}});
   terrLabels.forEach(lb=>lb.style.display='none');
+  dcfSecLabels.forEach(lb=>lb.style.display='none');
+  riskLabels.forEach(lb=>lb.style.display='none');
   legend.style.display='none';
-  if(m==='hub'){cam.fly=false;cam.dist=170;cam.yaw=0;cam.pitch=0.06;cam.ty=0;}
-  if(m==='pulse'){cam.fly=false;legendPulse();}
-  if(m==='dcf'){cam.fly=true;cam.quat.identity();openDcfDock(null);}
-  if(m==='factor'&&!sub){cam.fly=false;}
-  if(m==='factor'&&sub==='helix'){cam.fly=false;cam.pitch=0.05;cam.ty=0;legendHelix();}
-  if(m==='risk'){cam.fly=false;openRisk();}
+  cam.fly=false;
+  if(m==='hub'){setOrbit(170,0,0.06,0);}
+  if(gk==='pulse'){setOrbit(MODE_DIST.pulse,cam.yaw,0.12,0);legendPulse();}
+  if(gk==='dcfsec'){setOrbit(MODE_DIST.dcfsec,0,0.1,0);openDcfSectorDock();}
+  if(gk==='dcfsub'){cam.fly=true;cam.quat.identity();openDcfDock(null);}
+  if(gk==='factor'){setOrbit(MODE_DIST.factor,0,0.1,0);}
+  if(gk==='helix'){setOrbit(MODE_DIST.helix,0,0.05,0);legendHelix();}
+  if(gk==='risk'){setOrbit(MODE_DIST.risk,0,0.05,0);openRisk();legendRisk();}
 }
-
-/* explode transition: the target system inflates around the camera */
-const EX={active:false,t:0,dir:1,gk:null,dur:1.05,done:null};
+const EX={active:false,t:0,dir:1,gk:null,dur:1.25,done:null};
 function explodeEnter(m,sub){
   const w=el('warp'); w.classList.remove('go'); void w.offsetWidth; w.classList.add('go');
   setMode(m,sub);
-  const gk=(m==='factor'&&sub==='helix')?'helix':m;
+  const gk=gkey();
   EX.active=true;EX.t=0;EX.dir=1;EX.gk=gk;EX.done=null;
   groups[gk].scale.setScalar(0.12);
-  if(m==='dcf'){cam.pos.set(0,0,8);}
-  else {cam.yaw=0;cam.pitch=(m==='factor'&&sub==='helix')?0.05:0.1;cam.dist=18;}
+  if(gk==='dcfsub'){cam.pos.set(0,0,8);cam.posT.copy(cam.pos);}
+  else {cam.dist=cam.distT=18;}
   camera.fov=74;camera.updateProjectionMatrix();
 }
 function explodeExit(then){
-  const gk=(MODE==='factor'&&SUB==='helix')?'helix':MODE;
+  const gk=gkey();
   EX.active=true;EX.t=0;EX.dir=-1;EX.gk=gk;
   EX.done=()=>{groups[gk].scale.setScalar(1);then();};
 }
 function tickExplode(dt){
   if(!EX.active)return;
   EX.t=clamp(EX.t+dt/EX.dur,0,1);
-  const e=EX.dir>0?ease(EX.t):1-ease(EX.t);
+  const e=EX.dir>0?smoothstep(EX.t):1-smoothstep(EX.t);
   groups[EX.gk].scale.setScalar(lerp(0.12,1,e));
   camera.fov=lerp(74,55,e);camera.updateProjectionMatrix();
-  if(MODE==='dcf') cam.pos.z=lerp(8,120,e);
-  else cam.dist=lerp(18,MODE_DIST[EX.gk]||150,e);
+  if(EX.gk==='dcfsub'){const z=lerp(8,BY_SECTOR[dcfSubSector]?Math.max(34,Math.sqrt(BY_SECTOR[dcfSubSector].length)*7.5)*1.9:110,e);
+    cam.pos.set(0,0,z);cam.posT.copy(cam.pos);}
+  else {cam.dist=cam.distT=lerp(18,MODE_DIST[EX.gk]||150,e);}
   if(EX.t>=1){EX.active=false;if(EX.done)EX.done();}
 }
 el('backBtn').onclick=()=>escBack();
 function escBack(){
   if(EX.active)return;
   if(searchEl.style.display==='block'){closeSearch();return;}
+  if(MODE==='dcf'&&SUB==='sub'){explodeExit(()=>explodeEnter('dcf'));return;}
   if(MODE==='factor'&&SUB==='helix'){explodeExit(()=>explodeEnter('factor'));return;}
   if(MODE!=='hub') explodeExit(()=>setMode('hub'));
 }
 
-/* pointer + keys */
-let dragging=false,px=0,py=0,moved=0,dragDX=0;
-const keys={};
-canvas.addEventListener('pointerdown',e=>{dragging=true;moved=0;dragDX=0;px=e.clientX;py=e.clientY;});
+/* pointer / touch / pinch */
+const ptrs=new Map();
+let dragging=false,px=0,py=0,moved=0,dragDX=0,pinchD=0;
+const keys={}, lastTap={};
+canvas.addEventListener('pointerdown',e=>{
+  canvas.setPointerCapture(e.pointerId);
+  ptrs.set(e.pointerId,{x:e.clientX,y:e.clientY});
+  if(ptrs.size===1){dragging=true;moved=0;dragDX=0;px=e.clientX;py=e.clientY;}
+  if(ptrs.size===2){const a=[...ptrs.values()];pinchD=Math.hypot(a[0].x-a[1].x,a[0].y-a[1].y);dragging=false;}
+});
 addEventListener('pointerup',e=>{
+  ptrs.delete(e.pointerId);
   if(dragging&&MODE==='hub'&&!EX.active&&Math.abs(dragDX)>40){stepCarousel(dragDX<0?1:-1);}
-  else if(moved<5)handleClick(e);
+  else if(dragging&&moved<6)handleClick(e);
   dragging=false;
 });
+addEventListener('pointercancel',e=>{ptrs.delete(e.pointerId);dragging=false;});
 addEventListener('pointermove',e=>{
   mouse.x=(e.clientX/innerWidth)*2-1;mouse.y=-(e.clientY/innerHeight)*2+1;mouseEv=e;
+  if(ptrs.has(e.pointerId))ptrs.set(e.pointerId,{x:e.clientX,y:e.clientY});
+  if(ptrs.size===2&&!EX.active&&MODE!=='hub'){                 // pinch zoom
+    const a=[...ptrs.values()];const d=Math.hypot(a[0].x-a[1].x,a[0].y-a[1].y);
+    if(pinchD>0){const f=pinchD/d;
+      if(cam.fly){const fw=new THREE.Vector3(0,0,-1).applyQuaternion(cam.quat);
+        cam.posT.addScaledVector(fw,(d-pinchD)*0.25);}
+      else {const L=ZLIM[gkey()]||[40,340];cam.distT=clamp(cam.distT*f,L[0],L[1]);}}
+    pinchD=d; return;
+  }
   if(!dragging)return;
   const dx=e.clientX-px,dy=e.clientY-py;moved+=Math.abs(dx)+Math.abs(dy);px=e.clientX;py=e.clientY;
   if(EX.active)return;
@@ -677,25 +851,39 @@ addEventListener('pointermove',e=>{
   if(cam.fly){
     const eu=new THREE.Euler(0,0,0,'YXZ');eu.setFromQuaternion(cam.quat);
     eu.y-=dx*0.0026;eu.x=clamp(eu.x-dy*0.0026,-1.45,1.45);cam.quat.setFromEuler(eu);
-  }else{cam.yaw-=dx*0.005;cam.pitch=clamp(cam.pitch+dy*0.005,-1.35,1.35);}
+  }else{cam.yawT-=dx*0.005;cam.pitchT=clamp(cam.pitchT+dy*0.005,-1.35,1.35);}
 });
 canvas.addEventListener('wheel',e=>{e.preventDefault();
-  if(EX.active||MODE==='hub')return;
-  if(cam.fly){const f=new THREE.Vector3(0,0,-1).applyQuaternion(cam.quat);cam.pos.addScaledVector(f,-e.deltaY*0.06);}
-  else if(MODE==='factor'&&SUB==='helix'){cam.ty=clamp(cam.ty-e.deltaY*0.05,-70,70);cam.dist=clamp(cam.dist+e.deltaY*0.02,40,220);}
-  else cam.dist=clamp(cam.dist+e.deltaY*0.12,50,340);
+  if(EX.active)return;
+  if(MODE==='hub'){ringTarget-=e.deltaY*0.0022;return;}       // scrolling spins the carousel
+  if(cam.fly){const f=new THREE.Vector3(0,0,-1).applyQuaternion(cam.quat);cam.posT.addScaledVector(f,-e.deltaY*0.08);}
+  else if(gkey()==='helix'){cam.tyT=clamp(cam.tyT-e.deltaY*0.06,-BY_SECTOR[helixSector].length*3,BY_SECTOR[helixSector].length*3);}
+  else {const L=ZLIM[gkey()]||[40,340];cam.distT=clamp(cam.distT+e.deltaY*0.14,L[0],L[1]);}
 },{passive:false});
+function zoomJump(dirIn){                                     // double-tap W/S: ±25%
+  if(MODE==='hub')return;
+  if(cam.fly){const f=new THREE.Vector3(0,0,-1).applyQuaternion(cam.quat);
+    cam.posT.addScaledVector(f,(dirIn?1:-1)*Math.max(cam.posT.length()*0.25,10));}
+  else {const L=ZLIM[gkey()]||[40,340];cam.distT=clamp(cam.distT*(dirIn?0.75:1.25),L[0],L[1]);}
+}
 addEventListener('keydown',e=>{
   if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='f'&&(MODE==='dcf'||MODE==='factor')){e.preventDefault();openSearch();return;}
   if(e.key==='/'&&searchEl.style.display!=='block'&&document.activeElement.tagName!=='INPUT'){
     if(MODE==='dcf'||MODE==='factor'){e.preventDefault();openSearch();return;}}
   if(e.key==='Escape'){escBack();return;}
+  if(document.activeElement.tagName==='INPUT')return;
   if(MODE==='hub'&&!EX.active){
     if(e.key==='ArrowRight'){stepCarousel(1);return;}
     if(e.key==='ArrowLeft'){stepCarousel(-1);return;}
-    if(e.key==='Enter'){explodeEnter(PORTALS[hubIdx].id);return;}
+    if(e.key==='Enter'){explodeEnter(PORTALS[hubIdx].id==='dcf'?'dcf':PORTALS[hubIdx].id);return;}
   }
-  keys[e.key.toLowerCase()]=true;
+  const k=e.key.toLowerCase();
+  if(!e.repeat&&(k==='w'||k==='s')){
+    const now=performance.now();
+    if(now-(lastTap[k]||0)<300) zoomJump(k==='w');
+    lastTap[k]=now;
+  }
+  keys[k]=true;
 });
 addEventListener('keyup',e=>keys[e.key.toLowerCase()]=false);
 
@@ -703,7 +891,7 @@ const ray=new THREE.Raycaster(), mouse=new THREE.Vector2(); let mouseEv=null;
 function pickables(){
   if(MODE==='hub')return portalMeshes;
   if(MODE==='pulse')return [groups.pulse.userData.sphere];
-  if(MODE==='dcf')return dcfNodes;
+  if(MODE==='dcf')return SUB==='sub'?dcfNodes:dcfSecNodes;
   if(MODE==='factor')return SUB==='helix'?helixHexes:sectorNodes;
   return [];
 }
@@ -715,11 +903,17 @@ function handleClick(e){
   const u=hits[0].object.userData;
   if(u.portalIdx!=null){
     if(u.portalIdx===hubIdx) explodeEnter(PORTALS[hubIdx].id);
-    else { // rotate the shortest counter-clockwise-biased way to it
-      let d=(u.portalIdx-hubIdx+4)%4; if(d===3)d=-1;
-      for(let k=0;k<Math.abs(d);k++)stepCarousel(Math.sign(d));
-    }
+    else {let d=(u.portalIdx-hubIdx+4)%4; if(d===3)d=-1;
+      for(let k=0;k<Math.abs(d);k++)stepCarousel(Math.sign(d));}
   }
+  else if(MODE==='pulse'){                                    // territory click → top movers
+    const inv=groups.pulse.quaternion.clone().invert();
+    const p=hits[0].point.clone().normalize().applyQuaternion(inv);
+    let best=-1,bd=1e9;
+    SECGEO.forEach((sg,i)=>{const d=sg.seed.angleTo(p);if(d<bd){bd=d;best=i;}});
+    if(best>=0) openPulseDock(best);
+  }
+  else if(u.dcfSector!=null){buildDcfSub(u.dcfSector);explodeExit(()=>explodeEnter('dcf','sub'));}
   else if(u.sectorIdx!=null){buildHelix(u.sectorIdx);explodeExit(()=>explodeEnter('factor','helix'));}
   else if(u.helix) openHexDock(u.st);
   else if(u.st&&MODE==='dcf') selectDcf(hits[0].object);
@@ -740,16 +934,24 @@ function hover(){
       tip.style.display='block';tip.style.left=(mouseEv.clientX+16)+'px';tip.style.top=(mouseEv.clientY+8)+'px';
       tip.innerHTML=`<div class="tk">${best.st.tk}</div>
         <div class="ln"><span>TURNOVER σ</span> ${best.st.volZ.toFixed(2)} · <span>5D</span> <b style="color:${best.vel>0?'#3ec6ff':'#ff4757'}">${best.vel>0?'▲ BULL':'▼ BEAR'} ${(best.vel*100).toFixed(0)}</b></div>
-        <div class="ln"><span>TERRITORY</span> ${SECTORS[best.st.sector]}</div>`;
+        <div class="ln"><span>TERRITORY</span> ${SECTORS[best.st.sector]} · TAP FOR TOP MOVERS</div>`;
       return;
     }
   }
-  if(MODE==='dcf'&&hits.length){
+  if(MODE==='dcf'&&SUB!=='sub'&&hits.length){
+    const ss=SECSTAT[hits[0].object.userData.dcfSector];
+    tip.style.display='block';tip.style.left=(mouseEv.clientX+16)+'px';tip.style.top=(mouseEv.clientY+8)+'px';
+    tip.innerHTML=`<div class="tk">${ss.nm.toUpperCase()}</div>
+      <div class="ln"><span>AVG MoS</span> ${ss.avgMos==null?'—':fmtPct(ss.avgMos)} · <span>UNDER</span> ${ss.pctUnder==null?'—':ss.pctUnder.toFixed(0)+'%'}</div>
+      <div class="ln"><span>VALUED</span> ${ss.nValued||0}/${BY_SECTOR[ss.i].length}</div>`;
+    return;
+  }
+  if(MODE==='dcf'&&SUB==='sub'&&hits.length){
     const st=hits[0].object.userData.st;
     tip.style.display='block';tip.style.left=(mouseEv.clientX+16)+'px';tip.style.top=(mouseEv.clientY+8)+'px';
     tip.innerHTML=`<div class="tk">${st.tk}</div>
       <div class="ln"><span>FAIR</span> ${st.dcf.fair?('$'+st.dcf.fair.toFixed(2)):'—'} · <span>PX</span> $${st.price.toFixed(2)}</div>
-      <div class="ln"><span>MoS</span> <b style="color:${st.mos>0?'#3ec6ff':'#ff4757'}">${st.mos==null?'—':(st.mos>0?'+':'')+st.mos.toFixed(1)+'%'}</b></div>`;
+      <div class="ln"><span>MoS</span> <b style="color:${st.mos>0?'#3ec6ff':'#ff4757'}">${st.mos==null?'—':fmtPct(st.mos)}</b></div>`;
     return;
   }
   if(MODE==='factor'&&!SUB&&hits.length){
@@ -764,14 +966,15 @@ function hover(){
     const st=hits[0].object.userData.st;
     tip.style.display='block';tip.style.left=(mouseEv.clientX+16)+'px';tip.style.top=(mouseEv.clientY+8)+'px';
     tip.innerHTML=`<div class="tk">${st.tk}</div>
-      <div class="ln"><span>COMPOSITE</span> ${((st.comp||0)>0?'+':'')+(st.comp||0).toFixed(2)} · <span>CAP</span> $${(st.mkt/1e9).toFixed(0)}B</div>`;
+      <div class="ln"><span>PERCENTILE</span> ${st.pct==null?'—':st.pct.toFixed(0)} · <span>COMPOSITE</span> ${((st.comp||0)>0?'+':'')+(st.comp||0).toFixed(2)}</div>
+      <div class="ln"><span>CAP</span> $${(st.mkt/1e9).toFixed(0)}B</div>`;
     return;
   }
   tip.style.display='none';
 }
 
 /* =====================================================================
-   DCF DOCK
+   DCF DOCK (company level — unchanged engine)
    ===================================================================== */
 const dcfDock=el('dcfDock'); let dcfSel=null;
 function selectDcf(mesh){dcfSel=mesh;dcfHalo.visible=true;openDcfDock(mesh.userData.st);}
@@ -787,11 +990,13 @@ function ringSvg(pct,color){const r=26,c=2*Math.PI*r;
     <circle cx="32" cy="32" r="${r-7}" fill="none" stroke="#0b2a40" stroke-width="1" stroke-dasharray="2 4"/></svg>`;}
 function openDcfDock(st){
   dcfDock.style.display='block';
-  if(!st){dcfDock.innerHTML=`<h2>DCF ENGINE</h2><div class="sub">TWO-STAGE FCF · GORDON TERMINAL</div>
-    <div class="krow"><span>NODES</span><span>${STOCKS.length}</span></div>
-    <div class="krow"><span>COLOR</span><span>BLUE UNDERVALUED · RED OVER</span></div>
+  if(!st){dcfDock.innerHTML=`<h2>${dcfSubSector>=0?SECTORS[dcfSubSector].toUpperCase():'LATTICE'}</h2>
+    <div class="sub">TWO-STAGE FCF · GORDON TERMINAL</div>
+    <div class="krow"><span>NODES</span><span>${dcfNodes.length}</span></div>
+    <div class="krow"><span>COLOR</span><span>BLUE UNDER · RED OVER</span></div>
+    <div class="krow"><span>GLOW</span><span>MoS BEYOND P95 / P5</span></div>
     <div class="sec">SELECT A NODE</div>
-    <div class="flag">Fly into the lattice and click any vertex — or press CTRL-F to locate a ticker.</div>`;return;}
+    <div class="flag">Fly in and tap any vertex — or press CTRL-F to locate a ticker.</div>`;return;}
   const fcfPct=st.fcf&&st.mkt?clamp(Math.round(st.fcf/st.mkt*1000)/10,1,12):4;
   dcfDock.innerHTML=`<h2>${st.tk}</h2><div class="sub">${SECTORS[st.sector].toUpperCase()} · WACC ${LIVE?'PIPELINE-SEEDED':'CAPM-SEEDED'}</div>
     <div id="dcfGauge"></div>
@@ -825,7 +1030,7 @@ function renderDcfResult(st,res){
   g.innerHTML=`<div class="gauge">${ringSvg(Math.abs(mos)/100,under?'#3ec6ff':'#ff4757')}
     <div class="gv"><b>$${res.fair.toFixed(2)}</b><span>FAIR VALUE / SHARE</span></div>
     <div class="gv"><b>$${st.price.toFixed(2)}</b><span>PRICE</span></div></div>
-    <span class="badge ${under?'under':'over'}">${under?'UNDERVALUED':'OVERVALUED'} ${(mos>0?'+':'')+mos.toFixed(1)}%</span>
+    <span class="badge ${under?'under':'over'}">${under?'UNDERVALUED':'OVERVALUED'} ${fmtPct(mos)}</span>
     ${res.tvf!=null?`<div class="krow" style="margin-top:10px"><span>PV(TV) / EV</span><span>${(res.tvf*100).toFixed(0)}%</span></div>`:''}`;
   fl.innerHTML=(res.flags||[]).map(f=>`<div class="flag">⚠ ${f}</div>`).join('');
 }
@@ -856,7 +1061,7 @@ function openHexDock(st){
     <div class="gauge">${ringSvg(clamp(((st.comp||0)+1.6)/3.2,0,1),(st.comp||0)>0?'#3ec6ff':'#ff4757')}
       <div class="gv"><b>${((st.comp||0)>0?'+':'')+(st.comp||0).toFixed(2)}</b><span>COMPOSITE Z</span></div>
       ${st.pct!=null?`<div class="gv"><b>${st.pct.toFixed(0)}</b><span>PERCENTILE</span></div>`:''}</div>
-    <div class="sec">SIX-AXIS FACE</div>
+    <div class="sec">SIX-AXIS FACE · ETCHED ON THE PRISM</div>
     ${radarSvg(st.f)}
     <div class="bars">${FAXES.map(k=>{const v=st.f[k];
       return `<div class="b"><span>${k.toUpperCase()}</span><div class="tr"><div class="fl" style="width:${v==null?0:clamp((v+2.6)/5.2,0,1)*100}%;${(v||0)<0?'background:#ff4757;box-shadow:0 0 8px rgba(255,71,87,.6)':''}"></div></div><span>${v==null?'·':(v>0?'+':'')+v.toFixed(2)}</span></div>`;}).join('')}</div>
@@ -864,18 +1069,31 @@ function openHexDock(st){
 }
 
 /* =====================================================================
-   RISK CONSOLE
+   RISK CONSOLE — rank-mode candidate pool + free add
    ===================================================================== */
 const riskCtl=el('riskCtl'), riskOut=el('riskOut');
 let RISK=null;
+function rankPool(mode){
+  const score=s=>{
+    if(mode==='DCF upside') return s.mos==null?-999:s.mos;
+    if(mode==='Blend 50/50') return ((s.comp||0)*20+50)*0.5+(s.mos==null?0:clamp(s.mos,-100,100)*0.5);
+    return s.comp==null?-999:s.comp;
+  };
+  return STOCKS.slice().sort((a,b)=>score(b)-score(a));
+}
 function openRisk(){
-  if(!RISK) RISK={book:STOCKS.slice().sort((a,b)=>(b.comp||0)-(a.comp||0)).slice(0,8).map(s=>s.tk),
+  if(!RISK) RISK={book:rankPool('Composite').slice(0,8).map(s=>s.tk),extra:[],rank:'Composite',
     capital:1e6,sizing:'Risk parity (ERC)',tvol:12,conf:0.95,horizon:1,part:20,lw:true,shock:-35,rateBp:-150};
   riskCtl.style.display='block'; riskOut.style.display='block';
-  const longs=STOCKS.slice().sort((a,b)=>(b.comp||0)-(a.comp||0)).slice(0,16);
+  const pool=rankPool(RISK.rank).slice(0,16);
+  const extras=RISK.extra.filter(tk=>!pool.some(s=>s.tk===tk)).map(tk=>STOCKS.find(s=>s.tk===tk)).filter(Boolean);
   riskCtl.innerHTML=`<h2>ASSUMPTIONS</h2><div class="sub">EVERY NUMBER COMPUTED · NOTHING HARD-CODED</div>
-    <div class="sec">BOOK · TOP COMPOSITE LONGS</div>
-    <div class="chips" id="bookChips">${longs.map(s=>`<button class="chip ${RISK.book.includes(s.tk)?'on':''}" data-tk="${s.tk}">${s.tk}</button>`).join('')}</div>
+    <div class="sec">CANDIDATE RANKING</div>
+    <div class="ctl"><label>RANK BY</label><select id="rRank">
+      ${['Composite','DCF upside','Blend 50/50'].map(o=>`<option ${o===RISK.rank?'selected':''}>${o}</option>`).join('')}</select></div>
+    <div class="chips" id="bookChips">${pool.concat(extras).map(s=>`<button class="chip ${RISK.book.includes(s.tk)?'on':''}" data-tk="${s.tk}">${s.tk}</button>`).join('')}</div>
+    <div class="ctl"><label>ADD ANY TICKER (POOL IS A SHORTLIST, NOT A LIMIT)</label>
+      <input type="text" class="fui" id="rAdd" placeholder="TYPE + ENTER · e.g. NVDA"></div>
     <div class="sec">CAPITAL & SIZING</div>
     <div class="ctl"><label>CAPITAL ($)</label><input type="number" id="rCap" value="${RISK.capital}" step="100000"></div>
     <div class="ctl"><label>SIZING METHOD</label><select id="rSiz">
@@ -893,6 +1111,15 @@ function openRisk(){
     const tk=ch.dataset.tk,i=RISK.book.indexOf(tk);
     if(i>=0){if(RISK.book.length>2)RISK.book.splice(i,1);}else RISK.book.push(tk);
     ch.classList.toggle('on',RISK.book.includes(tk)); computeRisk();});
+  el('rRank').addEventListener('change',()=>{RISK.rank=el('rRank').value;openRisk();});
+  el('rAdd').addEventListener('keydown',e=>{
+    if(e.key!=='Enter')return;
+    const tk=el('rAdd').value.trim().toUpperCase();
+    const st=STOCKS.find(s=>s.tk===tk);
+    if(!st){el('rAdd').value='';el('rAdd').placeholder='NOT IN UNIVERSE';return;}
+    if(!RISK.book.includes(tk))RISK.book.push(tk);
+    if(!RISK.extra.includes(tk))RISK.extra.push(tk);
+    openRisk();});
   ['rTv','rHz','rPa','rSh','rRt'].forEach(id=>el(id).addEventListener('input',()=>{
     const e2=el(id);e2.style.setProperty('--f',((e2.value-e2.min)/(e2.max-e2.min)*100)+'%');
     el(id+'o').textContent=e2.value+({rTv:'%',rHz:'D',rPa:'%',rSh:'%',rRt:'BP'})[id];
@@ -956,11 +1183,11 @@ function computeRisk(){
     <div class="sec">TIGHTEST CORRELATIONS</div>
     ${pairs.slice(0,4).map(p=>`<div class="krow"><span>${p[0]} × ${p[1]}</span><span style="color:${p[2]>0.5?'#ffb454':'#9fd2ec'}">ρ ${p[2].toFixed(2)}</span></div>`).join('')}
     <div class="flag">Sized book is long-only by design; shorts are hedging overlays (see risk_core). ${LIVE?'Returns are the pipeline\u2019s real trailing matrix.':'Returns are simulated until the pipeline feed connects.'}</div>`;
-  buildRiskWeb(book,S);
+  buildRiskWeb(book,S,wpct);
 }
 
 /* =====================================================================
-   SEARCH (CTRL-F)
+   SEARCH
    ===================================================================== */
 const searchEl=el('search'), sIn=el('searchInput'), sRes=el('searchRes');
 let sSel=0,sItems=[];
@@ -971,7 +1198,7 @@ function renderSearch(q){
   sItems=STOCKS.filter(s=>s.tk.includes(q)||SECTORS[s.sector].toUpperCase().includes(q)).slice(0,9);
   sSel=0;
   sRes.innerHTML=sItems.map((s,i)=>`<div class="it ${i===0?'sel':''}" data-i="${i}">
-    <b>${s.tk}</b><span>${SECTORS[s.sector]} · MoS ${s.mos==null?'—':(s.mos>0?'+':'')+s.mos.toFixed(0)+'%'}</span></div>`).join('');
+    <b>${s.tk}</b><span>${SECTORS[s.sector]} · MoS ${s.mos==null?'—':fmtPct(s.mos)}</span></div>`).join('');
   sRes.querySelectorAll('.it').forEach(it=>it.onclick=()=>{lockOn(sItems[+it.dataset.i]);closeSearch();});
 }
 sIn.addEventListener('input',()=>renderSearch(sIn.value));
@@ -983,17 +1210,23 @@ sIn.addEventListener('keydown',e=>{
   e.preventDefault();
   sRes.querySelectorAll('.it').forEach((it,i)=>it.classList.toggle('sel',i===sSel));
 });
+function flyToNode(mesh){
+  const p=mesh.position.clone(), target=p.clone().add(p.clone().normalize().multiplyScalar(24));
+  const m4=new THREE.Matrix4().lookAt(target,p,new THREE.Vector3(0,1,0));
+  const q1=new THREE.Quaternion().setFromRotationMatrix(m4);
+  const p0=cam.pos.clone(),q0=cam.quat.clone(),t0=performance.now();
+  (function flyy(){const t=clamp((performance.now()-t0)/900,0,1),e=smoothstep(t);
+    cam.pos.lerpVectors(p0,target,e);cam.posT.copy(cam.pos);cam.quat.copy(q0).slerp(q1,e);
+    if(t<1)requestAnimationFrame(flyy);})();
+}
 function lockOn(st){
   if(MODE==='dcf'){
-    const mesh=dcfNodes.find(m=>m.userData.st===st); if(!mesh)return;
-    selectDcf(mesh);
-    const p=mesh.position.clone(), target=p.clone().add(p.clone().normalize().multiplyScalar(26));
-    const m4=new THREE.Matrix4().lookAt(target,p,new THREE.Vector3(0,1,0));
-    const q1=new THREE.Quaternion().setFromRotationMatrix(m4);
-    const p0=cam.pos.clone(),q0=cam.quat.clone(),t0=performance.now();
-    (function flyy(){const t=clamp((performance.now()-t0)/900,0,1),e=ease(t);
-      cam.pos.lerpVectors(p0,target,e);cam.quat.copy(q0).slerp(q1,e);
-      if(t<1)requestAnimationFrame(flyy);})();
+    const go=()=>{const mesh=dcfNodes.find(m=>m.userData.st===st);
+      if(mesh){selectDcf(mesh);flyToNode(mesh);}};
+    if(SUB==='sub'&&dcfSubSector===st.sector) go();
+    else {buildDcfSub(st.sector);
+      if(SUB==='sub'){setMode('dcf','sub');go();}
+      else explodeExit(()=>{explodeEnter('dcf','sub');setTimeout(go,1300);});}
   } else if(MODE==='factor'){
     buildHelix(st.sector);
     if(SUB!=='helix') explodeExit(()=>{explodeEnter('factor','helix');openHexDock(st);});
@@ -1006,11 +1239,15 @@ const legend=el('legend');
 function legendPulse(){legend.style.display='block';legend.innerHTML=
   `<div class="row"><div class="sw" style="background:#3ec6ff"></div>NET BUYING · BULLISH (5D)</div>
    <div class="row"><div class="sw" style="background:#ff4757"></div>NET SELLING · BEARISH (5D)</div>
-   <div class="row"><div class="sw" style="background:transparent;border-top:1px solid #4e7f9d"></div>SPIKE HEIGHT = TURNOVER σ · REGIONS = SECTORS</div>`;}
+   <div class="row"><div class="sw" style="background:transparent;border-top:1px solid #4e7f9d"></div>SPIKE HEIGHT = TURNOVER σ · REGIONS = SECTORS · TAP REGION FOR TOP 5</div>`;}
 function legendHelix(){legend.style.display='block';legend.innerHTML=
-  `<div class="row"><div class="sw" style="background:#3ec6ff"></div>HIGH COMPOSITE</div>
-   <div class="row"><div class="sw" style="background:#ff4757"></div>LOW COMPOSITE</div>
-   <div class="row"><div class="sw" style="background:transparent;border-top:1px solid #4e7f9d"></div>WIDE = STRONG SECTOR · WOBBLE = DISPERSION</div>`;}
+  `<div class="row"><div class="sw" style="background:#3ec6ff"></div>HIGH COMPOSITE FACE</div>
+   <div class="row"><div class="sw" style="background:#ff4757"></div>LOW COMPOSITE FACE</div>
+   <div class="row"><div class="sw" style="background:transparent;border-top:1px solid #4e7f9d"></div>BASE→TIP = PERCENTILE LOW→HIGH · PRISM SIZE = CAP · ETCH = 6-FACTOR SHAPE</div>`;}
+function legendRisk(){legend.style.display='block';legend.innerHTML=
+  `<div class="row"><div class="sw" style="background:#3ec6ff"></div>CHORD = PAIRWISE RETURN CORRELATION |ρ| ≥ 0.25 (BLUE +, RED −)</div>
+   <div class="row"><div class="sw" style="background:transparent;border-top:1px solid #9fd2ec"></div>CHORD BRIGHTNESS = |ρ| STRENGTH · NODE SIZE = POSITION WEIGHT</div>
+   <div class="row"><div class="sw" style="background:transparent;border-top:1px solid #4e7f9d"></div>FEW CHORDS = DIVERSIFIED BOOK · A DENSE WHEEL = CROWDED RISK</div>`;}
 
 /* =====================================================================
    MAIN LOOP
@@ -1018,35 +1255,57 @@ function legendHelix(){legend.style.display='block';legend.innerHTML=
 function resize(){camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();
   renderer.setSize(innerWidth,innerHeight);}
 addEventListener('resize',resize);resize();
-
 const tmpV=new THREE.Vector3();
 function project(worldPos){
   tmpV.copy(worldPos).project(camera);
   return {x:(tmpV.x*0.5+0.5)*innerWidth, y:(-tmpV.y*0.5+0.5)*innerHeight, behind:tmpV.z>1};
+}
+function placeAnchorLabels(anchors,labels2,minFacing){
+  anchors.forEach((an,i)=>{
+    const wp=new THREE.Vector3(); an.getWorldPosition(wp);
+    const facing=wp.clone().normalize().dot(camera.position.clone().normalize());
+    const pr=project(wp), lb=labels2[i];
+    lb.style.display=(pr.behind||facing<minFacing||EX.active)?'none':'block';
+    lb.style.left=pr.x+'px'; lb.style.top=pr.y+'px';
+    lb.style.opacity=clamp((facing-minFacing)*2.2,0,1);
+  });
 }
 let last=performance.now();
 function loop(now){
   requestAnimationFrame(loop);
   const dt=Math.min((now-last)/1000,0.05); last=now;
   tickExplode(dt);
-  if(cam.fly&&!EX.active){
-    const f=new THREE.Vector3(0,0,-1).applyQuaternion(cam.quat), r=new THREE.Vector3(1,0,0).applyQuaternion(cam.quat);
-    const sp=60*dt;
-    if(keys['w'])cam.pos.addScaledVector(f,sp); if(keys['s'])cam.pos.addScaledVector(f,-sp);
-    if(keys['a'])cam.pos.addScaledVector(r,-sp); if(keys['d'])cam.pos.addScaledVector(r,sp);
+  const damp=1-Math.exp(-dt*9);                    // inertial smoothing everywhere
+  if(!EX.active){
+    /* held W/S = continuous zoom in every mode */
+    if(keys['w']||keys['s']){
+      const dir=keys['w']?1:-1;
+      if(cam.fly){const f=new THREE.Vector3(0,0,-1).applyQuaternion(cam.quat);
+        cam.posT.addScaledVector(f,dir*70*dt);}
+      else if(MODE!=='hub'){const L=ZLIM[gkey()]||[40,340];
+        cam.distT=clamp(cam.distT-dir*95*dt,L[0],L[1]);}
+    }
+    if(cam.fly){
+      const f=new THREE.Vector3(0,0,-1).applyQuaternion(cam.quat), r=new THREE.Vector3(1,0,0).applyQuaternion(cam.quat);
+      if(keys['a'])cam.posT.addScaledVector(r,-60*dt); if(keys['d'])cam.posT.addScaledVector(r,60*dt);
+    }
   }
+  cam.dist+= (cam.distT-cam.dist)*damp;
+  cam.yaw += (cam.yawT-cam.yaw)*damp;
+  cam.pitch+=(cam.pitchT-cam.pitch)*damp;
+  cam.ty  += (cam.tyT-cam.ty)*damp;
+  cam.pos.lerp(cam.posT,damp);
   if(cam.fly){camera.position.copy(cam.pos);camera.quaternion.copy(cam.quat);}
   else{
-    const ty=(MODE==='factor'&&SUB==='helix')?cam.ty:0;
+    const ty=gkey()==='helix'?cam.ty:0;
     camera.position.set(
       Math.sin(cam.yaw)*Math.cos(cam.pitch)*cam.dist,
       Math.sin(cam.pitch)*cam.dist+ty,
       Math.cos(cam.yaw)*Math.cos(cam.pitch)*cam.dist);
     camera.lookAt(0,ty,0);
   }
-  /* carousel: settle toward target rotation (counter-clockwise steps) */
   if(MODE==='hub'){
-    if(!dragging){ // snap to nearest quarter-turn
+    if(!dragging){
       const snapped=Math.round(ringTarget/(Math.PI/2))*(Math.PI/2);
       ringTarget=lerp(ringTarget,snapped,dt*6);
       hubIdx=((Math.round(-snapped/(Math.PI/2))%4)+4)%4;
@@ -1056,7 +1315,7 @@ function loop(now){
     PORTALS.forEach((p,i)=>{
       const a=p.baseAngle+ringRot;
       p.group.position.set(Math.sin(a)*RING_R,Math.sin(now*0.0006+i)*1.8,Math.cos(a)*RING_R-RING_R*0.35);
-      const front=(Math.cos(a)+1)/2;             // 1 = facing camera
+      const front=(Math.cos(a)+1)/2;
       p.group.scale.setScalar(lerp(0.62,1.2,front));
       p.group.rotation.y+=dt*(0.15+i*0.03);
     });
@@ -1080,28 +1339,32 @@ function loop(now){
       o.r.style.width=o.r.style.height=(pxr*2+16)+'px';
     });
   }
-  /* pulse: slow spin + territory labels that hide on the far side */
   if(MODE==='pulse'){
     groups.pulse.rotation.y+=dt*0.04;
-    terrAnchors.forEach((an,i)=>{
+    placeAnchorLabels(terrAnchors,terrLabels,0.18);
+  }
+  if(MODE==='dcf'&&SUB!=='sub'){
+    groups.dcfsec.rotation.y+=dt*0.03;
+    placeAnchorLabels(dcfSecAnchors,dcfSecLabels,0.15);
+  }
+  if(MODE==='risk'&&riskWeb&&riskAnchors.length){
+    riskAnchors.forEach((an,i)=>{
       const wp=new THREE.Vector3(); an.getWorldPosition(wp);
-      const facing=wp.clone().normalize().dot(camera.position.clone().normalize());
-      const pr=project(wp), lb=terrLabels[i];
-      lb.style.display=(pr.behind||facing<0.18||EX.active)?'none':'block';
-      lb.style.left=pr.x+'px'; lb.style.top=pr.y+'px';
-      lb.style.opacity=clamp((facing-0.18)*2.2,0,1);
+      const pr=project(wp), lb=riskLabels[i];
+      if(!lb)return;
+      lb.style.display=(pr.behind||EX.active)?'none':'block';
+      lb.style.left=pr.x+'px'; lb.style.top=pr.y+'px'; lb.style.opacity=0.9;
     });
   }
   groups.factor.rotation.y+=dt*0.04;
-  groups.helix.rotation.y+=dt*0.10;
-  if(riskWeb)riskWeb.rotation.y+=dt*0.12;
-  if(dcfSel){dcfHalo.position.copy(dcfSel.position);dcfHalo.lookAt(camera.position);dcfHalo.rotation.z=now*0.001;}
+  groups.helix.rotation.y+=dt*0.08;
+  if(dcfSel&&dcfHalo){dcfHalo.position.copy(dcfSel.position);dcfHalo.lookAt(camera.position);dcfHalo.rotation.z=now*0.001;}
   hover();
   renderer.render(scene,camera);
 }
 
 /* =====================================================================
-   BOOT — try the live snapshot, fall back to simulation, then build
+   BOOT
    ===================================================================== */
 async function fetchSnapshot(){
   for(const url of SNAPSHOT_URLS){
@@ -1110,19 +1373,19 @@ async function fetchSnapshot(){
       const r=await fetch(url,{cache:'no-store',signal:ctl.signal});
       clearTimeout(to);
       if(r.ok){const j=await r.json(); if(j&&j.stocks&&j.stocks.length) return j;}
-    }catch(e){/* try next */}
+    }catch(e){}
   }
   return null;
 }
 (async function boot(){
   buildSimulated();
   const snap=await fetchSnapshot();
-  if(snap){try{applySnapshot(snap);}catch(e){console.error('snapshot parse failed, using simulation',e);} }
+  if(snap){try{applySnapshot(snap);}catch(e){console.error('snapshot parse failed, using simulation',e);}}
   finalizeData();
   const badge=el('dataBadge');
   if(LIVE){badge.classList.add('live');
     badge.textContent='◈ LIVE FEED · '+(AS_OF?AS_OF.replace('T',' '):'')+' · '+STOCKS.length+' NAMES';}
-  buildPulse(); buildDcf(); buildFactor();
+  buildPulse(); buildDcfSectors(); buildFactor();
   setMode('hub');
   el('boot').style.opacity=0; setTimeout(()=>el('boot').remove(),600);
   requestAnimationFrame(loop);
