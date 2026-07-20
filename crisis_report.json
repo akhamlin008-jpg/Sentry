@@ -1,0 +1,115 @@
+{
+  "generated": "2026-07-20T04:46:12+00:00",
+  "price_source": "live 3y cache (no ETF columns; run crisis.yml for 2015+)",
+  "data_span": [
+    "2023-07-18",
+    "2026-07-17"
+  ],
+  "cost_model": {
+    "base": {
+      "half_spread": 0.0003,
+      "impact_coef": 0.1
+    },
+    "note": "sensitivity run at 0.5x/1x/2x per cost_model discipline"
+  },
+  "windows": {
+    "regime_2016_2019": {
+      "window": "regime_2016_2019",
+      "status": "insufficient data",
+      "note": "needs the long-history fetch (crisis.yml) for this window"
+    },
+    "covid_2020": {
+      "window": "covid_2020",
+      "status": "insufficient data",
+      "note": "needs the long-history fetch (crisis.yml) for this window"
+    },
+    "bear_2022": {
+      "window": "bear_2022",
+      "status": "insufficient data",
+      "note": "needs the long-history fetch (crisis.yml) for this window"
+    },
+    "crash_2025": {
+      "window": "crash_2025",
+      "start": "2024-07-31",
+      "end": "2025-11-28",
+      "periods": 17,
+      "survivorship_biased": false,
+      "ew_universe_cum_return": 0.2182140399130159,
+      "spy_available": true,
+      "factor_sleeve": "price-only (momentum + reversal); see module docstring",
+      "variants": {
+        "long_only_0.5x_costs": {
+          "periods": 17,
+          "ann_return": -0.019469896122853436,
+          "ann_vol": 0.21639892911424063,
+          "sharpe_excess_of_zero": -0.0899722387839311,
+          "max_drawdown": 0.2661127263774923,
+          "avg_turnover": 1.1362584345433768,
+          "avg_cost_drag_ann": 0.00974999840628918,
+          "ann_active_return": -0.1668949789034987,
+          "active_t_stat": -1.2594775403391218,
+          "note": "t-stat on mean active return vs the supplied baseline. n=17 periods is a small sample; |t|<2 means the edge is statistically indistinguishable from zero, and in-sample model development biases even a large t upward.",
+          "max_dd": -0.2661127263774923,
+          "trough_date": "2025-02-28",
+          "months_to_recover": null,
+          "worst_month": -0.17972589716612677,
+          "best_month": 0.06792952523014387
+        },
+        "long_only_1x_costs": {
+          "periods": 17,
+          "ann_return": -0.029018641750605978,
+          "ann_vol": 0.21651275303494033,
+          "sharpe_excess_of_zero": -0.13402740182202116,
+          "max_drawdown": 0.26767595685098955,
+          "avg_turnover": 1.1367422245484156,
+          "avg_cost_drag_ann": 0.01946611194032127,
+          "ann_active_return": -0.17500804743265264,
+          "active_t_stat": -1.3334032277723828,
+          "note": "t-stat on mean active return vs the supplied baseline. n=17 periods is a small sample; |t|<2 means the edge is statistically indistinguishable from zero, and in-sample model development biases even a large t upward.",
+          "max_dd": -0.26767595685098955,
+          "trough_date": "2025-02-28",
+          "months_to_recover": null,
+          "worst_month": -0.1806037420310233,
+          "best_month": 0.06662031220657641
+        },
+        "long_only_2x_costs": {
+          "periods": 17,
+          "ann_return": -0.04776926885529287,
+          "ann_vol": 0.2167647036076567,
+          "sharpe_excess_of_zero": -0.22037383420944337,
+          "max_drawdown": 0.2707739912823044,
+          "avg_turnover": 1.1377090165675505,
+          "avg_cost_drag_ann": 0.0387977340802571,
+          "ann_active_return": -0.19093947220773555,
+          "active_t_stat": -1.4801228350426836,
+          "note": "t-stat on mean active return vs the supplied baseline. n=17 periods is a small sample; |t|<2 means the edge is statistically indistinguishable from zero, and in-sample model development biases even a large t upward.",
+          "max_dd": -0.2707739912823044,
+          "trough_date": "2025-02-28",
+          "months_to_recover": null,
+          "worst_month": -0.18234492907660116,
+          "best_month": 0.06401319189738863
+        },
+        "with_short_overlay_1x": {
+          "periods": 17,
+          "ann_return": -0.0803757319904631,
+          "ann_vol": 0.18476103233224064,
+          "sharpe_excess_of_zero": -0.4350253458528528,
+          "max_drawdown": 0.2356930473565072,
+          "avg_turnover": 1.37735013694818,
+          "avg_cost_drag_ann": 0.022937797093656745,
+          "ann_active_return": -0.21864347441092713,
+          "active_t_stat": -1.9504952682037904,
+          "note": "t-stat on mean active return vs the supplied baseline. n=17 periods is a small sample; |t|<2 means the edge is statistically indistinguishable from zero, and in-sample model development biases even a large t upward.",
+          "max_dd": -0.2356930473565072,
+          "trough_date": "2025-02-28",
+          "months_to_recover": null,
+          "worst_month": -0.16016031903735606,
+          "best_month": 0.05744593009608851
+        },
+        "breaker_hedge_SH_1x": {
+          "status": "skipped \u2014 SH not in price matrix (run crisis.yml to fetch ETFs)"
+        }
+      }
+    }
+  }
+}
