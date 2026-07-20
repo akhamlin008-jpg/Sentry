@@ -152,6 +152,19 @@ select,input[type=number],input[type=text].fui{background:#04101d;border:1px sol
   font-family:var(--mono);font-size:11px;letter-spacing:.3em;color:var(--stark);transition:opacity .5s}
 @media (prefers-reduced-motion:reduce){#warp.go,.ring::after{animation:none}}
 @media (max-width:820px){.dock{width:min(320px,88vw)}}
+.arow{padding:7px 8px;border:1px solid rgba(62,198,255,.14);border-radius:6px;margin:5px 0;cursor:pointer;transition:.15s}
+.arow:hover,.arow.on{background:rgba(62,198,255,.08);border-color:rgba(62,198,255,.45)}
+.arow .hd{display:flex;justify-content:space-between;font-weight:700;letter-spacing:.06em}
+.arow .mt{color:var(--text-dim);font-size:10px;margin-top:2px;letter-spacing:.05em}
+.zpos{color:#ffb454}.zneg{color:#3ec6ff}.zhot{color:#ff4757}
+.warnbox{border:1px solid rgba(255,71,87,.4);background:rgba(255,71,87,.06);color:#ffb0b8;
+  font-size:10px;letter-spacing:.05em;padding:7px 9px;border-radius:6px;margin:9px 0;line-height:1.5}
+.bias{display:inline-block;border:1px solid #ffb454;color:#ffb454;font-size:9px;padding:1px 5px;
+  border-radius:4px;letter-spacing:.08em;margin-left:6px}
+.ccard{border:1px solid rgba(62,198,255,.16);border-radius:7px;padding:8px 9px;margin:7px 0}
+.ccard .cw{font-weight:800;letter-spacing:.08em}
+.ccard .kv{display:flex;justify-content:space-between;font-size:11px;margin-top:3px}
+.ccard .kv span{color:var(--text-dim)}
 </style>
 </head>
 <body>
@@ -182,6 +195,7 @@ select,input[type=number],input[type=text].fui{background:#04101d;border:1px sol
 <div class="dock right" id="pulseDock"></div>
 <div class="dock left"  id="riskCtl"></div>
 <div class="dock right" id="riskOut"></div>
+<div class="dock left"  id="arbCtl"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script>
@@ -370,7 +384,7 @@ const C_BLUE=new THREE.Color(0x3ec6ff), C_RED=new THREE.Color(0xff4757);
   scene.add(new THREE.Points(g,new THREE.PointsMaterial({color:0x9fd2ec,size:1.15,sizeAttenuation:true,transparent:true,opacity:0.7})));
 })();
 
-const groups={hub:new THREE.Group(),pulse:new THREE.Group(),dcfsec:new THREE.Group(),dcfsub:new THREE.Group(),factor:new THREE.Group(),helix:new THREE.Group(),risk:new THREE.Group()};
+const groups={hub:new THREE.Group(),pulse:new THREE.Group(),dcfsec:new THREE.Group(),dcfsub:new THREE.Group(),factor:new THREE.Group(),helix:new THREE.Group(),risk:new THREE.Group(),arb:new THREE.Group()};
 for(const k in groups){groups[k].visible=false;scene.add(groups[k]);}
 
 const wireMat=o=>new THREE.LineBasicMaterial({color:0x3ec6ff,transparent:true,opacity:o});
@@ -399,13 +413,15 @@ const PORTALS=[
   {id:'dcf',   nm:'DCF ENGINE',   ds:'INTRINSIC VALUE · SECTORS'},
   {id:'factor',nm:'FACTOR HELIX', ds:'COMPOSITE × SECTOR'},
   {id:'risk',  nm:'RISK CONSOLE', ds:'VaR · STRESS · SIZING'},
+  {id:'arb',   nm:'ARBITRAGE',    ds:'PAIRS · DECAY · CORRELATION'},
 ];
+const NP=PORTALS.length, PSTEP=2*Math.PI/NP;
 const RING_R=78;
 const carousel=new THREE.Group(); groups.hub.add(carousel);
 const portalMeshes=[];
 let hubIdx=0, ringRot=0, ringTarget=0;
 PORTALS.forEach((p,i)=>{
-  const g=new THREE.Group(); p.baseAngle=i*Math.PI/2;
+  const g=new THREE.Group(); p.baseAngle=i*PSTEP;
   const core=new THREE.Mesh(new THREE.SphereGeometry(11,32,32),
     new THREE.MeshBasicMaterial({color:0x3ec6ff,transparent:true,opacity:0.05}));
   g.add(core, wireSphere(11,1,0.5), wireSphere(13.5,0,0.16));
@@ -419,9 +435,20 @@ PORTALS.forEach((p,i)=>{
   } else if(p.id==='factor'){
     const pts=[];for(let t=0;t<=60;t++){const u=t/60;pts.push(new THREE.Vector3(Math.cos(u*9)*6*(0.4+u*0.6),(u-0.5)*17,Math.sin(u*9)*6*(0.4+u*0.6)));}
     g.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts),wireMat(0.85)));
-  } else {
+  } else if(p.id==='risk'){
     const ring=new THREE.Mesh(new THREE.TorusGeometry(7.5,0.16,8,48),new THREE.MeshBasicMaterial({color:0xffb454}));
     ring.rotation.x=1.1; g.add(ring);
+  } else {                                   /* arb: dyad + infinity loop */
+    const na=new THREE.Mesh(new THREE.OctahedronGeometry(1.7),new THREE.MeshBasicMaterial({color:0xffb454}));
+    const nb=new THREE.Mesh(new THREE.OctahedronGeometry(1.7),new THREE.MeshBasicMaterial({color:0x3ec6ff}));
+    na.position.set(0,6.4,0); nb.position.set(0,-6.4,0); g.add(na,nb);
+    g.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(
+      [new THREE.Vector3(0,6.4,0),new THREE.Vector3(4.4,0,0),new THREE.Vector3(0,-6.4,0)]),
+      new THREE.LineBasicMaterial({color:0xff4757,transparent:true,opacity:0.85})));
+    const lem=[];for(let t=0;t<=72;t++){const u=t/72*2*Math.PI,d=1+Math.sin(u)*Math.sin(u);
+      lem.push(new THREE.Vector3(8.5*Math.cos(u)/d,0,8.5*Math.sin(u)*Math.cos(u)/d));}
+    const lo=new THREE.Line(new THREE.BufferGeometry().setFromPoints(lem),wireMat(0.7));
+    lo.rotation.x=0.5; g.add(lo);
   }
   core.userData={portalIdx:i}; portalMeshes.push(core);
   p.group=g; carousel.add(g);
@@ -434,8 +461,8 @@ const labels=PORTALS.map(p=>{
 const navDots=PORTALS.map((p,i)=>{const d=document.createElement('div');d.className='dot'+(i===0?' on':'');
   el('carouselNav').appendChild(d);return d;});
 function stepCarousel(dir){
-  hubIdx=(hubIdx+dir+4)%4;
-  ringTarget+=dir*Math.PI/2;
+  hubIdx=(hubIdx+dir+NP)%NP;
+  ringTarget+=dir*PSTEP;
   navDots.forEach((d,i)=>d.classList.toggle('on',i===hubIdx));
 }
 
@@ -732,8 +759,8 @@ function buildRiskWeb(book,S,wpct){
 let MODE='hub', SUB='';
 const cam={yaw:0,pitch:0.1,dist:190,ty:0, yawT:0,pitchT:0.1,distT:190,tyT:0,
   fly:false,pos:new THREE.Vector3(0,0,150),posT:new THREE.Vector3(0,0,150),quat:new THREE.Quaternion()};
-const MODE_DIST={pulse:150,dcfsec:130,factor:135,helix:120,risk:92};
-const ZLIM={pulse:[62,340],dcfsec:[55,300],factor:[55,300],helix:[35,240],risk:[45,220]};
+const MODE_DIST={pulse:150,dcfsec:130,factor:135,helix:120,risk:92,arb:132};
+const ZLIM={pulse:[62,340],dcfsec:[55,300],factor:[55,300],helix:[35,240],risk:[45,220],arb:[55,300]};
 function setOrbit(dist,yaw,pitch,ty){cam.dist=cam.distT=dist;cam.yaw=cam.yawT=yaw;
   cam.pitch=cam.pitchT=pitch;cam.ty=cam.tyT=ty||0;}
 const HINTS={
@@ -743,14 +770,16 @@ const HINTS={
   dcfsub:'<b>DRAG</b> LOOK · <b>W S / SCROLL</b> TRAVERSE · <b>TAP NODE</b> MODEL · <b>CTRL-F</b> LOCATE · <b>ESC</b> SECTORS',
   factor:'<b>TAP SECTOR</b> EXPAND HELIX · <b>W S</b> ZOOM · <b>ESC</b> RETURN',
   helix:'<b>DRAG</b> ORBIT · <b>SCROLL</b> CLIMB · <b>TAP PRISM</b> COMPOSITE FACE · <b>CTRL-F</b> LOCATE · <b>ESC</b> SECTORS',
-  risk:'ASSUMPTIONS LEFT · BOOK RIGHT · <b>W S</b> ZOOM · <b>ESC</b> RETURN'
+  risk:'ASSUMPTIONS LEFT · BOOK RIGHT · <b>W S</b> ZOOM · <b>ESC</b> RETURN',
+  arb:'<b>TAP DYAD</b> PAIR MODEL · <b>TAP CORE</b> DECAY · <b>TAP SECTOR</b> CORRELATION · <b>W S</b> ZOOM · <b>ESC</b> RETURN'
 };
 function titles(){return {hub:['SENTRY','SELECT A SYSTEM'],
   pulse:['MARKET PULSE','SECTOR TERRITORIES · RED BEAR / BLUE BULL'],
   dcfsec:['DCF ENGINE','SECTOR LATTICE · NODE COLOR = AVG MoS'],
   dcfsub:['DCF ENGINE',(dcfSubSector>=0?SECTORS[dcfSubSector].toUpperCase():'')+' · GLOW = P95 EXTREME'],
   factor:['FACTOR HELIX',SECTORS.length+' GICS SECTORS · COMPOSITE INDEX'],
-  helix:['FACTOR HELIX',''],risk:['RISK CONSOLE','VaR · STRESS · RISK-PARITY SIZING']};}
+  helix:['FACTOR HELIX',''],risk:['RISK CONSOLE','VaR · STRESS · RISK-PARITY SIZING'],
+  arb:['ARBITRAGE','RELATIVE VALUE · DECAY HARVEST · CORRELATION REVERSION']};}
 function gkey(){return MODE==='dcf'?(SUB==='sub'?'dcfsub':'dcfsec'):(MODE==='factor'&&SUB==='helix')?'helix':MODE;}
 
 function setMode(m,sub){
@@ -770,6 +799,7 @@ function setMode(m,sub){
   terrLabels.forEach(lb=>lb.style.display='none');
   dcfSecLabels.forEach(lb=>lb.style.display='none');
   riskLabels.forEach(lb=>lb.style.display='none');
+  arbLabels.forEach(lb=>lb.style.display='none');
   legend.style.display='none';
   cam.fly=false;
   if(m==='hub'){setOrbit(170,0,0.06,0);}
@@ -779,6 +809,7 @@ function setMode(m,sub){
   if(gk==='factor'){setOrbit(MODE_DIST.factor,0,0.1,0);}
   if(gk==='helix'){setOrbit(MODE_DIST.helix,0,0.05,0);legendHelix();}
   if(gk==='risk'){setOrbit(MODE_DIST.risk,0,0.05,0);openRisk();legendRisk();}
+  if(gk==='arb'){setOrbit(MODE_DIST.arb,0,0.14,0);openArbDock(arbTab);legendArb();}
 }
 const EX={active:false,t:0,dir:1,gk:null,dur:1.25,done:null};
 function explodeEnter(m,sub){
@@ -893,6 +924,7 @@ function pickables(){
   if(MODE==='pulse')return [groups.pulse.userData.sphere];
   if(MODE==='dcf')return SUB==='sub'?dcfNodes:dcfSecNodes;
   if(MODE==='factor')return SUB==='helix'?helixHexes:sectorNodes;
+  if(MODE==='arb')return arbPick;
   return [];
 }
 function handleClick(e){
@@ -903,7 +935,7 @@ function handleClick(e){
   const u=hits[0].object.userData;
   if(u.portalIdx!=null){
     if(u.portalIdx===hubIdx) explodeEnter(PORTALS[hubIdx].id);
-    else {let d=(u.portalIdx-hubIdx+4)%4; if(d===3)d=-1;
+    else {let d=(u.portalIdx-hubIdx+NP)%NP; if(d>NP/2)d-=NP;
       for(let k=0;k<Math.abs(d);k++)stepCarousel(Math.sign(d));}
   }
   else if(MODE==='pulse'){                                    // territory click → top movers
@@ -917,6 +949,9 @@ function handleClick(e){
   else if(u.sectorIdx!=null){buildHelix(u.sectorIdx);explodeExit(()=>explodeEnter('factor','helix'));}
   else if(u.helix) openHexDock(u.st);
   else if(u.st&&MODE==='dcf') selectDcf(hits[0].object);
+  else if(u.rvIdx!=null) openArbDock('rv',u.rvIdx);
+  else if(u.decayCore) openArbDock('decay',null);
+  else if(u.corrSector!=null) openArbDock('corr',null);
 }
 
 const tip=el('tip');
@@ -952,6 +987,20 @@ function hover(){
     tip.innerHTML=`<div class="tk">${st.tk}</div>
       <div class="ln"><span>FAIR</span> ${st.dcf.fair?('$'+st.dcf.fair.toFixed(2)):'—'} · <span>PX</span> $${st.price.toFixed(2)}</div>
       <div class="ln"><span>MoS</span> <b style="color:${st.mos>0?'#3ec6ff':'#ff4757'}">${st.mos==null?'—':fmtPct(st.mos)}</b></div>`;
+    return;
+  }
+  if(MODE==='arb'&&hits.length){
+    const u=hits[0].object.userData;
+    tip.style.display='block';tip.style.left=(mouseEv.clientX+16)+'px';tip.style.top=(mouseEv.clientY+8)+'px';
+    if(u.rvIdx!=null){const p=ARB.rv[u.rvIdx];
+      tip.innerHTML='<div class="tk">'+p.a+' / '+p.b+'</div>'+
+        '<div class="ln"><span>SPREAD</span> <b class="'+(Math.abs(p.z)>2.5?'zhot':'zneg')+'">z '+(p.z>0?'+':'')+p.z.toFixed(2)+'</b> · <span>HL</span> '+p.hl+'D</div>'+
+        '<div class="ln"><span>RICH</span> '+p.rich+' · <span>CHEAP</span> '+p.cheap+' · TAP FOR MODEL</div>';}
+    else if(u.decayCore){
+      tip.innerHTML='<div class="tk">PERPETUAL MOTION</div><div class="ln">LEVERAGED-DECAY ENGINE · TAP FOR THE TRADE — AND WHY IT ISN\'T FREE</div>';}
+    else if(u.corrSector!=null){const nm=SECTORS[u.corrSector];
+      const k=ARB.corr.filter(c=>(c.a===nm||c.b===nm)&&c.read!=='normal').length;
+      tip.innerHTML='<div class="tk">'+nm.toUpperCase()+'</div><div class="ln">'+k+' FLAGGED CORRELATION BREAK'+(k===1?'':'S')+' · TAP FOR TABLE</div>';}
     return;
   }
   if(MODE==='factor'&&!SUB&&hits.length){
@@ -1306,9 +1355,9 @@ function loop(now){
   }
   if(MODE==='hub'){
     if(!dragging){
-      const snapped=Math.round(ringTarget/(Math.PI/2))*(Math.PI/2);
+      const snapped=Math.round(ringTarget/PSTEP)*PSTEP;
       ringTarget=lerp(ringTarget,snapped,dt*6);
-      hubIdx=((Math.round(-snapped/(Math.PI/2))%4)+4)%4;
+      hubIdx=((Math.round(-snapped/PSTEP)%NP)+NP)%NP;
       navDots.forEach((d,i)=>d.classList.toggle('on',i===hubIdx));
     }
     ringRot=lerp(ringRot,ringTarget,dt*7);
@@ -1343,6 +1392,17 @@ function loop(now){
     groups.pulse.rotation.y+=dt*0.04;
     placeAnchorLabels(terrAnchors,terrLabels,0.18);
   }
+  if(MODE==='arb'){
+    if(arbState.ring)arbState.ring.rotation.y+=dt*0.05;
+    if(arbState.canopy)arbState.canopy.rotation.y-=dt*0.035;
+    if(arbState.torA)arbState.torA.rotation.z+=dt*0.9;
+    if(arbState.torB)arbState.torB.rotation.z-=dt*0.65;
+    if(arbState.lemni)arbState.lemni.rotation.y+=dt*0.4;
+    if(arbState.core){const s=1+0.06*Math.sin(now*0.0013);arbState.core.scale.setScalar(s);}
+    arbState.dyads.forEach((d,i)=>{d.lm.opacity=(0.4+Math.abs(clamp(d.z,-3.2,3.2))*0.12)
+      *(0.8+0.2*Math.sin(now*0.002+i));});
+    placeAnchorLabels(arbAnchors,arbLabels,0.12);
+  }
   if(MODE==='dcf'&&SUB!=='sub'){
     groups.dcfsec.rotation.y+=dt*0.03;
     placeAnchorLabels(dcfSecAnchors,dcfSecLabels,0.15);
@@ -1366,6 +1426,220 @@ function loop(now){
 /* =====================================================================
    BOOT
    ===================================================================== */
+
+/* =====================================================================
+   ARBITRAGE — pair tension ring · perpetual-motion core · correlation canopy
+   ===================================================================== */
+const ARB_URLS=['./arb.json',
+  'https://raw.githubusercontent.com/akhamlin008-jpg/Sentry/main/arb.json'];
+let ARB=null, arbTab='rv', arbSelRV=null, arbSelDK=0;
+let arbPick=[], arbLabels=[], arbAnchors=[];
+const arbState={dyads:[],torA:null,torB:null,core:null,lemni:null,ring:null,canopy:null};
+const arbCtl=el('arbCtl');
+const CRISIS_NM={regime_2016_2019:'2016–2019 REGIME',covid_2020:'COVID 2020',
+  bear_2022:'2022 BEAR',crash_2025:'2025 CRASH'};
+
+async function fetchArb(){
+  for(const url of ARB_URLS){
+    try{const ctl=new AbortController();const to=setTimeout(()=>ctl.abort(),6000);
+      const r=await fetch(url,{cache:'no-store',signal:ctl.signal});clearTimeout(to);
+      if(r.ok){const j=await r.json();if(j&&j.rv&&j.rv.length)return j;}
+    }catch(e){}}
+  return null;
+}
+function simulatedArb(){                       /* preview fallback — labeled SIM */
+  const rv=[],used=new Set();
+  for(let k=0;k<400&&rv.length<12;k++){
+    const si=Math.floor(rng()*BY_SECTOR.length),a=BY_SECTOR[si];
+    if(!a||a.length<4)continue;
+    const x=a[Math.floor(rng()*a.length)],y=a[Math.floor(rng()*a.length)];
+    if(x===y||used.has(x.tk+y.tk))continue;used.add(x.tk+y.tk);
+    let z=gauss()*1.7;if(Math.abs(z)<1)continue;z=clamp(z,-3.4,3.4);
+    let s=z;const spark=[];for(let t=0;t<64;t++){spark.unshift(s);s+= -0.06*s+gauss()*0.35;}
+    rv.push({a:x.tk,b:y.tk,sector:SECTORS[si],rich:z>0?x.tk:y.tk,cheap:z>0?y.tk:x.tk,
+      z:+z.toFixed(2),beta:+(0.7+rng()*0.6).toFixed(2),hl:+(15+rng()*70).toFixed(1),
+      corr:+(0.6+rng()*0.3).toFixed(2),spark});}
+  const decay=[['UPRO','SPXU','S&P 500','±3x'],['TQQQ','SQQQ','Nasdaq-100','±3x'],
+    ['SSO','SDS','S&P 500','±2x'],['SOXL','SOXS','PHLX Semis','±3x']].map(p=>{
+    let v=1;const curve=[];for(let t=0;t<64;t++){curve.push(v);v*=1+0.004+gauss()*0.03-(rng()<0.05?0.09:0);}
+    return {pair:p[0]+'+'+p[1],status:'ok',underlying:p[2],lev:p[3],days:2800,
+      median63:+(0.004+rng()*0.02).toFixed(4),winpct:+(55+rng()*14).toFixed(1),
+      worst63:-(0.2+rng()*1.4),worst_end:'—',vol:0.1+rng()*0.2,curve};});
+  const corr=[];for(let i=0;i<SECTORS.length&&corr.length<10;i++)for(let j=i+1;j<SECTORS.length;j++){
+    const g=gauss()*0.45;if(Math.abs(g)<0.18)continue;
+    corr.push({a:SECTORS[i],b:SECTORS[j],cl:+(0.35+rng()*0.3).toFixed(2),
+      cs:+((0.35+rng()*0.3)+g).toFixed(2),gap:+g.toFixed(2),
+      leader:SECTORS[i],laggard:SECTORS[j],spread:+(rng()*0.1).toFixed(3),
+      read:g<-0.15?'decoupled — reconvergence candidate':g>0.15?'abnormally coupled — dispersion candidate':'normal'});
+    if(corr.length>=10)break;}
+  return {simulated:true,rv,decay,corr,crisis:null,
+    warnings:{rv:'z-score reversion, not riskless arb; divergence loss unbounded',
+      decay:'static short-both harvests daily-reset decay; borrow fees NOT modeled and can flip the sign; loses in strong trends',
+      corr:'correlations regime-shift toward 1 in crashes',
+      crisis:'run the crisis-validation workflow to populate'}};
+}
+
+function secIdx(nm){return SECTORS.indexOf(nm);}
+function buildArb(){
+  while(groups.arb.children.length)groups.arb.remove(groups.arb.children[0]);
+  arbLabels.forEach(l=>l.remove());arbLabels=[];arbAnchors=[];arbPick=[];arbState.dyads=[];
+  /* --- pair tension ring --- */
+  const ring=new THREE.Group();arbState.ring=ring;
+  const R=40,n=ARB.rv.length;
+  const rail=[];for(let t=0;t<=90;t++){const a=t/90*2*Math.PI;rail.push(new THREE.Vector3(Math.cos(a)*R,0,Math.sin(a)*R));}
+  ring.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(rail),wireMat(0.22)));
+  ARB.rv.forEach((p,i)=>{
+    const a=-Math.PI/2+i*2*Math.PI/Math.max(n,3);
+    const bx=Math.cos(a)*R,bz=Math.sin(a)*R;
+    const zc=clamp(p.z,-3.2,3.2),sep=Math.abs(zc)*4.0+1.6,hot=Math.abs(p.z)>2.5;
+    const rich=new THREE.Mesh(new THREE.OctahedronGeometry(1.5),
+      new THREE.MeshBasicMaterial({color:0xffb454}));
+    const cheap=new THREE.Mesh(new THREE.OctahedronGeometry(1.5),
+      new THREE.MeshBasicMaterial({color:0x3ec6ff}));
+    rich.position.set(bx,sep,bz);cheap.position.set(bx,-sep,bz);
+    rich.userData={rvIdx:i};cheap.userData={rvIdx:i};
+    const mid=new THREE.Vector3(bx,0,bz).multiplyScalar(1+Math.abs(zc)*0.055);
+    const curve=new THREE.QuadraticBezierCurve3(rich.position.clone(),mid,cheap.position.clone());
+    const lm=new THREE.LineBasicMaterial({color:hot?0xff4757:0x6fd5ff,transparent:true,
+      opacity:0.45+Math.abs(zc)*0.12});
+    const tension=new THREE.Line(new THREE.BufferGeometry().setFromPoints(curve.getPoints(18)),lm);
+    const tick=new THREE.Mesh(new THREE.BoxGeometry(0.7,0.18,0.18),wireMat(0.5));
+    tick.position.set(bx,0,bz);tick.lookAt(0,0,0);
+    ring.add(rich,cheap,tension,tick);
+    arbPick.push(rich,cheap);
+    arbState.dyads.push({rich,cheap,lm,z:p.z});
+  });
+  groups.arb.add(ring);
+  /* --- perpetual-motion core --- */
+  const core=new THREE.Group();
+  const heart=wireSphere(6.2,1,0.55);core.add(heart);arbState.core=heart;
+  const tA=new THREE.Mesh(new THREE.TorusGeometry(11,0.16,8,64),
+    new THREE.MeshBasicMaterial({color:0x3ec6ff,transparent:true,opacity:0.9}));
+  const tB=new THREE.Mesh(new THREE.TorusGeometry(14,0.16,8,64),
+    new THREE.MeshBasicMaterial({color:0xff4757,transparent:true,opacity:0.8}));
+  tA.rotation.x=1.15;tB.rotation.x=-1.15;core.add(tA,tB);
+  arbState.torA=tA;arbState.torB=tB;
+  const lem=[];for(let t=0;t<=110;t++){const u=t/110*2*Math.PI,d=1+Math.sin(u)*Math.sin(u);
+    lem.push(new THREE.Vector3(21*Math.cos(u)/d,0,21*Math.sin(u)*Math.cos(u)/d));}
+  const lo=new THREE.Line(new THREE.BufferGeometry().setFromPoints(lem),wireMat(0.35));
+  core.add(lo);arbState.lemni=lo;
+  const pick=new THREE.Mesh(new THREE.SphereGeometry(8,12,12),
+    new THREE.MeshBasicMaterial({transparent:true,opacity:0,depthWrite:false}));
+  pick.userData={decayCore:true};core.add(pick);arbPick.push(pick);
+  groups.arb.add(core);
+  /* --- correlation canopy --- */
+  const canopy=new THREE.Group();canopy.position.y=26;canopy.rotation.x=0.12;
+  arbState.canopy=canopy;
+  const CR=58,anch=[];
+  SECTORS.forEach((nm,i)=>{
+    const a=-Math.PI/2+i*2*Math.PI/SECTORS.length;
+    const pos=new THREE.Vector3(Math.cos(a)*CR,Math.sin(i*1.7)*2.2,Math.sin(a)*CR);
+    const node=new THREE.Mesh(new THREE.OctahedronGeometry(1.6),
+      new THREE.MeshBasicMaterial({color:0x9fdcff}));
+    node.position.copy(pos);node.userData={corrSector:i};
+    canopy.add(node);arbPick.push(node);anch.push(pos);
+    const an=new THREE.Object3D();an.position.copy(pos).multiplyScalar(1.14);canopy.add(an);
+    arbAnchors.push(an);
+    arbLabels.push(labelDiv('tick','<div class="nm">'+nm.toUpperCase().slice(0,14)+'</div>'));
+  });
+  const crail=[];for(let t=0;t<=90;t++){const a=t/90*2*Math.PI;crail.push(new THREE.Vector3(Math.cos(a)*CR,0,Math.sin(a)*CR));}
+  canopy.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(crail),wireMat(0.14)));
+  ARB.corr.forEach(c=>{
+    if(c.read==='normal')return;
+    const ia=secIdx(c.a),ib=secIdx(c.b);if(ia<0||ib<0)return;
+    const mid=anch[ia].clone().add(anch[ib]).multiplyScalar(0.5);
+    mid.y+=10+Math.abs(c.gap)*8;
+    const cur=new THREE.QuadraticBezierCurve3(anch[ia],mid,anch[ib]);
+    canopy.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(cur.getPoints(22)),
+      new THREE.LineBasicMaterial({color:c.gap<0?0xff4757:0xffb454,transparent:true,
+        opacity:clamp(Math.abs(c.gap),0.25,0.9)})));
+  });
+  groups.arb.add(canopy);
+}
+
+/* ---------- dock console ---------- */
+function sparkSVG(vals,opt){
+  opt=opt||{};if(!vals||vals.length<2)return'';
+  const v=vals.filter(x=>x!=null);if(v.length<2)return'';
+  const w=300,h=58,lo=Math.min(...v),hi=Math.max(...v),rg=(hi-lo)||1;
+  const pts=v.map((x,i)=>((i/(v.length-1))*w).toFixed(1)+','+((h-4)-(x-lo)/rg*(h-8)).toFixed(1)).join(' ');
+  let ref='';const rv=opt.ref;
+  if(rv!=null&&rv>=lo&&rv<=hi){const y=((h-4)-(rv-lo)/rg*(h-8)).toFixed(1);
+    ref='<line x1="0" y1="'+y+'" x2="'+w+'" y2="'+y+'" stroke="rgba(255,180,84,.55)" stroke-dasharray="3 4"/>';}
+  return '<svg width="100%" viewBox="0 0 '+w+' '+h+'" style="display:block;margin:6px 0">'+ref+
+    '<polyline points="'+pts+'" fill="none" stroke="'+(opt.color||'#3ec6ff')+'" stroke-width="1.6"/></svg>';
+}
+const pctf=x=>x==null?'—':(x*100).toFixed(1)+'%';
+function openArbDock(tab,sel){
+  arbTab=tab||arbTab;if(sel!=null&&arbTab==='rv')arbSelRV=sel;
+  document.querySelectorAll('.dock').forEach(d=>d.style.display='none');
+  arbCtl.style.display='block';
+  const live=ARB&&!ARB.simulated;
+  const chips=['rv','decay','corr','crisis'].map(t=>
+    '<span class="chip'+(t===arbTab?' on':'')+'" data-t="'+t+'">'+
+    ({rv:'PAIRS',decay:'DECAY',corr:'CORR',crisis:'CRISIS'})[t]+'</span>').join(' ');
+  let body='';
+  if(arbTab==='rv'){
+    if(arbSelRV==null)arbSelRV=0;
+    const p=ARB.rv[arbSelRV];
+    body+='<div class="sub">RICH LEG AMBER · CHEAP LEG BLUE · SEPARATION = |z|</div>';
+    if(p)body+=sparkSVG(p.spark,{ref:0,color:Math.abs(p.z)>2.5?'#ff4757':'#3ec6ff'})+
+      '<div class="sub">'+(p.a+' / '+p.b)+' SPREAD z · SHORT <b class="zpos">'+p.rich+'</b> / LONG <b class="zneg">'+p.cheap+'</b> · HALF-LIFE '+p.hl+'D</div>';
+    body+=ARB.rv.map((q,i)=>'<div class="arow'+(i===arbSelRV?' on':'')+'" data-rv="'+i+'">'+
+      '<div class="hd"><span>'+q.a+' / '+q.b+'</span><span class="'+(Math.abs(q.z)>2.5?'zhot':(q.z>0?'zpos':'zneg'))+'">z '+(q.z>0?'+':'')+q.z.toFixed(2)+'</span></div>'+
+      '<div class="mt">'+q.sector.toUpperCase()+' · β '+q.beta+' · ρ '+q.corr+' · HL '+q.hl+'D</div></div>').join('');
+    body+='<div class="warnbox">'+ARB.warnings.rv.toUpperCase()+'</div>';
+  }
+  if(arbTab==='decay'){
+    const ok=ARB.decay.filter(d=>d.status==='ok');
+    if(!ok.length){body+='<div class="warnbox">NO LEVERAGED-ETF HISTORY — RUN THE CRISIS-VALIDATION WORKFLOW</div>';}
+    else{const d=ok[clamp(arbSelDK,0,ok.length-1)];
+      body+='<div class="sub">SHORT BOTH LEGS · STATIC HOLD · $1 GROSS</div>'+
+        sparkSVG(d.curve,{ref:1,color:'#3ec6ff'})+
+        '<div class="sub">'+d.pair+' EQUITY · '+d.days+' DAYS OF DATA</div>'+
+        ok.map((q,i)=>'<div class="arow'+(q.pair===d.pair?' on':'')+'" data-dk="'+i+'">'+
+        '<div class="hd"><span>'+q.pair+'</span><span class="'+(q.median63>0?'zneg':'zhot')+'">'+pctf(q.median63)+' / 63D</span></div>'+
+        '<div class="mt">'+q.lev+' '+String(q.underlying).toUpperCase()+' · WIN '+q.winpct+'% · WORST '+pctf(q.worst63)+' ('+q.worst_end+')</div></div>').join('');}
+    body+='<div class="warnbox">'+ARB.warnings.decay.toUpperCase()+'</div>';
+  }
+  if(arbTab==='corr'){
+    body+='<div class="sub">63D CORRELATION vs 2Y BASELINE · RED = DECOUPLED · AMBER = CROWDED</div>'+
+      ARB.corr.map(c=>'<div class="arow"><div class="hd"><span>'+c.a.slice(0,12)+' ↔ '+c.b.slice(0,12)+
+      '</span><span class="'+(c.gap<0?'zhot':'zpos')+'">Δρ '+(c.gap>0?'+':'')+c.gap.toFixed(2)+'</span></div>'+
+      '<div class="mt">'+c.read.toUpperCase()+'</div>'+
+      (c.read!=='normal'?'<div class="mt">LONG '+c.laggard.toUpperCase()+' / SHORT '+c.leader.toUpperCase()+' · SPREAD '+pctf(c.spread)+'</div>':'')+
+      '</div>').join('')+
+      '<div class="warnbox">'+ARB.warnings.corr.toUpperCase()+'</div>';
+  }
+  if(arbTab==='crisis'){
+    if(!ARB.crisis){body+='<div class="warnbox">'+ARB.warnings.crisis.toUpperCase()+'</div>';}
+    else{body+='<div class="sub">WALK-FORWARD PIT BACKTESTS · PRICE-ONLY SLEEVE · REAL COSTS</div>'+
+      ARB.crisis.windows.map(w=>{
+        if(!w.long_1x)return'<div class="ccard"><span class="cw">'+(CRISIS_NM[w.id]||w.id)+'</span><div class="mt">'+(w.status||'')+'</div></div>';
+        const c05=w.long_05x?pctf(w.long_05x.ann):'—',c2=w.long_2x?pctf(w.long_2x.ann):'—';
+        return '<div class="ccard"><span class="cw">'+(CRISIS_NM[w.id]||w.id)+'</span>'+
+          (w.biased?'<span class="bias">SURVIVORSHIP-BIASED</span>':'')+
+          '<div class="kv"><span>LONG 1x COSTS</span><b>'+pctf(w.long_1x.ann)+' · DD '+pctf(w.long_1x.dd)+'</b></div>'+
+          '<div class="kv"><span>COST 0.5x / 1x / 2x</span><b>'+c05+' / '+pctf(w.long_1x.ann)+' / '+c2+'</b></div>'+
+          (w.shorts?'<div class="kv"><span>+SHORT OVERLAY</span><b>'+pctf(w.shorts.ann)+' · DD '+pctf(w.shorts.dd)+'</b></div>':'')+
+          (w.hedge?'<div class="kv"><span>+SH HEDGE ON BREAKER</span><b>'+pctf(w.hedge.ann)+' · DD '+pctf(w.hedge.dd)+'</b></div>':'')+
+          '<div class="kv"><span>EQUAL-WEIGHT UNIVERSE</span><b>'+pctf(w.ew_cum)+' CUM</b></div>'+
+          '<div class="mt">'+w.start+' → '+w.end+' · '+w.periods+' PERIODS · COST DRAG '+pctf(w.long_1x.cost)+'/YR</div></div>';
+      }).join('')+
+      '<div class="warnbox">'+ARB.warnings.crisis.toUpperCase()+'</div>';}
+  }
+  arbCtl.innerHTML='<h2>ARBITRAGE</h2><div class="sub">'+(live?'◈ LIVE — COMPUTED FROM 2015+ HISTORY':'SIMULATED PREVIEW — arb.json NOT FETCHED')+'</div>'+
+    '<div style="margin:8px 0 4px">'+chips+'</div>'+body;
+  arbCtl.querySelectorAll('.chip').forEach(ch=>ch.onclick=()=>openArbDock(ch.dataset.t));
+  arbCtl.querySelectorAll('[data-rv]').forEach(r=>r.onclick=()=>openArbDock('rv',+r.dataset.rv));
+  arbCtl.querySelectorAll('[data-dk]').forEach(r=>r.onclick=()=>{arbSelDK=+r.dataset.dk;openArbDock('decay');});
+  arbState.dyads.forEach((d,i)=>{const s=(arbTab==='rv'&&i===arbSelRV)?1.7:1;
+    d.rich.scale.setScalar(s);d.cheap.scale.setScalar(s);});
+}
+function legendArb(){legend.style.display='block';legend.innerHTML=
+  '<b>RING</b> PAIR DISLOCATIONS — NODE SEPARATION = SPREAD z, RED TENSION ≥ 2.5σ · '+
+  '<b>CORE</b> LEVERAGED-DECAY ENGINE · <b>CANOPY</b> SECTOR CORRELATION BREAKS';}
+
 async function fetchSnapshot(){
   for(const url of SNAPSHOT_URLS){
     try{
@@ -1385,7 +1659,8 @@ async function fetchSnapshot(){
   const badge=el('dataBadge');
   if(LIVE){badge.classList.add('live');
     badge.textContent='◈ LIVE FEED · '+(AS_OF?AS_OF.replace('T',' '):'')+' · '+STOCKS.length+' NAMES';}
-  buildPulse(); buildDcfSectors(); buildFactor();
+  ARB=await fetchArb(); if(!ARB)ARB=simulatedArb();
+  buildPulse(); buildDcfSectors(); buildFactor(); buildArb();
   setMode('hub');
   el('boot').style.opacity=0; setTimeout(()=>el('boot').remove(),600);
   requestAnimationFrame(loop);
