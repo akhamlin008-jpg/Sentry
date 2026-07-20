@@ -47,8 +47,13 @@ jobs:
           DCF_CACHE_DIR: ".cache"
         run: python crisis_core.py
 
+      - name: Export arbitrage snapshot (arb.json for the front-end)
+        env:
+          DCF_CACHE_DIR: ".cache"
+        run: python export_arb.py
+
       - name: Commit history + report
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
           commit_message: "chore: crisis validation run"
-          file_pattern: ".cache/history_close.parquet .cache/history_volume.parquet crisis_report.json"
+          file_pattern: ".cache/history_close.parquet .cache/history_volume.parquet crisis_report.json arb.json"
