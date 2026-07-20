@@ -87,6 +87,13 @@ class PITSnapshot:
     # rather than being dropped.
     trailing_returns: object = None          # optional (T,N) DataFrame ending at date,
                                              # for covariance estimation (past-only)
+    aux: dict = field(default_factory=dict)
+    # Overlay instruments (hedge/inverse ETFs) that are tradeable but must NOT
+    # be scored or enter the long stock book, so they are deliberately kept
+    # out of `universe`/`rows`. Shape:
+    #   {ticker: {"fwd_return": float, "adv_dollars": float}}
+    # PIT-safe by the same rule as fwd_returns: written by the builder, read
+    # by the backtester only AFTER weights are frozen.
 
 
 class PITViolation(Exception):

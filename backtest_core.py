@@ -44,6 +44,7 @@ def run_backtest(snaps, *,
                  vol_target_ann=None, vol_target_kwargs=None, trailing_ppy=12,
                  cost_kwargs=None, start_equity=1_000_000.0,
                  dd_trigger=0.15, degross_to=0.5,
+                 hedge_ticker=None, hedge_leverage=1.0, hedge_frac=1.0,
                  benchmark_returns=None, strict_pit=True):
     """Returns a dict: equity curve, per-period returns/costs/turnover,
     holdings history, and (if benchmark_returns given) active stats.
@@ -129,10 +130,26 @@ def run_backtest(snaps, *,
             vscale = ex.combined_scale(sigma_period, rets, vol_target_ann,
                                        trailing_ppy, **vol_target_kwargs)
             scale = min(scale, vscale)
+        base_gross = sum(abs(w) for w in target_w.values())
         target_w = {t: w * scale for t, w in target_w.items()}
+
+        # HEDGE OVERLAY: when the breaker/vol-target degrosses, optionally park
+        # the freed exposure in an inverse ETF (from sn.aux) instead of cash.
+        # (1-scale)*gross of desired short-index exposure, divided by the
+        # fund's |leverage| so SDS/SPXU need proportionally fewer dollars.
+        # LONG the inverse fund — never a naked short. Costs apply like any
+        # trade. If the ETF has no data this period, the overlay is skipped
+        # (falls back to cash), never silently substituted.
+        if (hedge_ticker is not None and scale < 1.0
+                and hedge_ticker in sn.aux
+                and np.isfinite(sn.aux[hedge_ticker].get("fwd_return", np.nan))):
+            hw = hedge_frac * (1.0 - scale) * base_gross / max(abs(hedge_leverage), 1e-9)
+            target_w[hedge_ticker] = target_w.get(hedge_ticker, 0.0) + hw
 
         # trades + costs
         adv = {r["ticker"]: r.get("adv_dollars", np.nan) for r in rows}
+        for _at, _ax in sn.aux.items():
+            adv.setdefault(_at, _ax.get("adv_dollars", np.nan))
         trades = {}
         for t in set(target_w) | set(held_w):
             d = (target_w.get(t, 0.0) - held_w.get(t, 0.0)) * equity
@@ -155,6 +172,8 @@ def run_backtest(snaps, *,
                 r = sn.fwd_returns[t]
             elif t in sn.delisted:
                 r = sn.delisted[t]
+            elif t in sn.aux:
+                r = sn.aux[t].get("fwd_return", 0.0)
             else:
                 r = 0.0                              # validated: shouldn't happen
             pnl += w * r
@@ -165,7 +184,9 @@ def run_backtest(snaps, *,
         new_held = {}
         for t, w in target_w.items():
             r = sn.fwd_returns.get(t)
-            if r is None:
+            if r is None and t in sn.aux:
+                r = sn.aux[t].get("fwd_return")
+            if r is None or not np.isfinite(r):
                 continue
             new_held[t] = w * (1 + r) / (1 + period_ret if period_ret > -1 else 1)
         held_w = new_held
