@@ -1,0 +1,22 @@
+{
+ "schema": 1,
+ "generated_utc": "2026-07-22T23:05:00+00:00",
+ "generated_by": "manual seed — replaced by first Action run; log columns here are placeholders, the exporter passes through your real CSV header",
+ "as_of": "2026-07-22",
+ "verdict": "NO-TRADE",
+ "verdict_raw": "NO TRADE",
+ "rsi2": 66.2,
+ "cache_last_bar_utc": null,
+ "cache_rows": null,
+ "log": {
+  "columns": ["date", "rsi2", "three_down_days", "verdict"],
+  "rows": [["2026-07-22", "66.2", "False", "NO TRADE"]],
+  "total_rows": 1
+ },
+ "series": {
+  "column": "rsi2",
+  "kind": "rsi",
+  "points": [{"date": "2026-07-22", "value": 66.2}]
+ },
+ "detected_columns": {"date": "date", "verdict": "verdict", "rsi": "rsi2", "equity": null}
+}
