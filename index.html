@@ -1665,8 +1665,9 @@ function legendArb(){legend.style.display='block';legend.innerHTML=
    ES MEANREV — RSI2 daily signal (static display; ALL computation lives in
    the es-meanrev- Python repo; this only renders signal.json)
    ===================================================================== */
-const MR_URLS=['./signal.json',
-  'https://raw.githubusercontent.com/akhamlin008-jpg/Sentry/main/signal.json'];
+const MR_URLS=[
+  'https://raw.githubusercontent.com/akhamlin008-jpg/es-meanrev-/main/signal.json',
+  './signal.json'];
 let MR=null, MR_LIVE=false;
 async function fetchMr(){
   for(const url of MR_URLS){
@@ -1684,14 +1685,14 @@ function simulatedMr(){
   for(let i=0;i<28;i++){
     while(d.getDay()===0||d.getDay()===6)d.setDate(d.getDate()+1);
     const r2=clamp(50+gauss()*28,1,99),ds=d.toISOString().slice(0,10);
-    rows.push([ds,r2.toFixed(1),r2<10?'True':'False',r2<10?'TRADE':'NO TRADE']);
-    pts.push({date:ds,value:+r2.toFixed(1)});
+    rows.push([ds,r2.toFixed(1),r2<15?'True':'False',r2<15?'True':'False']);
+    pts.push({date:ds,value:+r2.toFixed(1),trade:r2<15});
     d.setDate(d.getDate()+1);
   }
   const last=rows[rows.length-1];
-  return {as_of:last[0],verdict:last[3]==='TRADE'?'TRADE':'NO-TRADE',rsi2:+last[1],
+  return {as_of:last[0],verdict:last[3]==='True'?'TRADE':'NO-TRADE',rsi2:+last[1],rsi2_threshold:15,has_pnl:false,
     generated_utc:null,cache_last_bar_utc:null,
-    log:{columns:['date','rsi2','three_down_days','verdict'],rows,total_rows:rows.length},
+    log:{columns:['signal_date','rsi2','down3','trade_next_day'],rows,total_rows:rows.length},
     series:{column:'rsi2',kind:'rsi',points:pts},simulated:true};
 }
 /* business-day gap between signal date and today (UTC dates) */
@@ -1715,7 +1716,7 @@ function buildMeanrev(){
   const mkBand=(rsi,color,op)=>{const t=new THREE.Mesh(new THREE.TorusGeometry(44,0.14,8,72),
     new THREE.MeshBasicMaterial({color,transparent:true,opacity:op}));
     t.rotation.x=Math.PI/2;t.position.y=(rsi-50)/50*24;G.add(t);};
-  mkBand(10,0xffb454,0.8); mkBand(90,0xff4757,0.45); mkBand(50,0x3ec6ff,0.22);
+  mkBand(15,0xffb454,0.8); mkBand(50,0x3ec6ff,0.22);
   /* RSI2 trail ribbon around the core; latest value marked */
   const pts=(MR&&MR.series&&MR.series.kind==='rsi')?MR.series.points:null;
   const vals=pts&&pts.length?pts.map(p=>p.value):[66.2];
@@ -1728,7 +1729,7 @@ function buildMeanrev(){
   tipM.position.copy(rib[rib.length-1]||new THREE.Vector3(44,0,0));G.add(tipM);
 }
 function legendMr(){legend.style.display='block';legend.innerHTML=
-  '<b>RIBBON</b> RSI2 TRAIL · <b>AMBER RING</b> OVERSOLD 10 · <b>RED RING</b> OVERBOUGHT 90 · '+
+  '<b>RIBBON</b> RSI2 TRAIL · <b>AMBER RING</b> OVERSOLD 15 — TRADE TRIGGER · '+
   '<b>CORE</b> NEXT-SESSION VERDICT — ALL VALUES COMPUTED UPSTREAM IN PYTHON';}
 
 function mrSvgChart(){
@@ -1739,13 +1740,15 @@ function mrSvgChart(){
   const X=i=>pad+i/(P.length-1)*(W-2*pad), Y=v=>H-pad-(v-lo)/(hi-lo)*(H-2*pad);
   const path=P.map((p,i)=>(i?'L':'M')+X(i).toFixed(1)+' '+Y(p.value).toFixed(1)).join('');
   let bands='';
-  if(s.kind==='rsi')bands='<line x1="0" x2="'+W+'" y1="'+Y(10)+'" y2="'+Y(10)+'" stroke="#ffb454" stroke-opacity=".5" stroke-dasharray="3 3"/>'+
-    '<line x1="0" x2="'+W+'" y1="'+Y(90)+'" y2="'+Y(90)+'" stroke="#ff4757" stroke-opacity=".35" stroke-dasharray="3 3"/>';
+  const TH=(MR&&MR.rsi2_threshold)||15;
+  if(s.kind==='rsi')bands='<line x1="0" x2="'+W+'" y1="'+Y(TH)+'" y2="'+Y(TH)+'" stroke="#ffb454" stroke-opacity=".55" stroke-dasharray="3 3"/>'+
+    '<text x="3" y="'+(Y(TH)-3)+'" fill="#ffb454" font-size="7" font-family="Share Tech Mono">RSI2 '+TH+' — TRADE BELOW</text>';
   return '<svg class="mrchart" viewBox="0 0 '+W+' '+H+'" preserveAspectRatio="none">'+bands+
     '<path d="'+path+'" fill="none" stroke="#3ec6ff" stroke-width="1.4"/>'+
+    P.map((p,i)=>p.trade?'<circle cx="'+X(i).toFixed(1)+'" cy="'+Y(p.value).toFixed(1)+'" r="2" fill="#ffb454"/>':'').join('')+
     '<circle cx="'+X(P.length-1)+'" cy="'+Y(P[P.length-1].value)+'" r="2.4" fill="#b8ecff"/></svg>'+
     '<div class="rangecap"><span>'+(P[0].date||'')+'</span><span>'+s.column.toUpperCase()+
-    (s.kind==='rsi'?' (NO EQUITY COLUMN IN LOG YET)':'')+'</span><span>'+(P[P.length-1].date||'')+'</span></div>';
+    (s.kind==='rsi'?' · AMBER = TRADE DAY':'')+'</span><span>'+(P[P.length-1].date||'')+'</span></div>';
 }
 const mrDock=el('mrDock');
 function openMrDock(){
@@ -1759,7 +1762,7 @@ function openMrDock(){
   if(stale&&!sim)body+='<div class="warnbox stalebox">⚠ DATA IS STALE — LAST SIGNAL IS FROM '+MR.as_of+
     ' ('+sess+' SESSIONS AGO). THE SCHEDULED JOB HAS NOT RUN. DO NOT ACT ON THIS VERDICT.</div>';
   if(sim)body+='<div class="warnbox">SIMULATED NUMBERS — NOT A REAL SIGNAL. PIPELINE FILE UNREACHABLE.</div>';
-  if(!sim&&MR.cache_warning)body+='<div class="warnbox stalebox">⚠ '+String(MR.cache_warning).toUpperCase()+'</div>';
+
   const v=MR?MR.verdict:'?';
   const badgeCls=v==='TRADE'?'under':'hold';
   body+='<div class="sec">NEXT-SESSION VERDICT</div>'+
@@ -1769,21 +1772,28 @@ function openMrDock(){
     '<div class="krow"><span>RSI2 (CLOSE)</span><span>'+(MR&&MR.rsi2!=null?MR.rsi2.toFixed(1):'—')+'</span></div>'+
     '<div class="krow"><span>SIGNAL DATE</span><span>'+(MR&&MR.as_of?MR.as_of:'—')+'</span></div>'+
     '<div class="krow"><span>SESSIONS OLD</span><span'+(stale?' style="color:var(--bear)"':'')+'>'+(sess==null?'—':sess)+'</span></div>'+
-    '<div class="krow"><span>PRICE FILE</span><span>'+(MR&&MR.cache_file?String(MR.cache_file).split('/').pop():'—')+'</span></div>'+
-    '<div class="krow"><span>CACHE LAST BAR</span><span>'+(MR&&MR.cache_last_bar_utc?MR.cache_last_bar_utc.replace('T',' ').slice(0,16)+' UTC':'UNKNOWN')+'</span></div>'+
-    '<div class="krow"><span>EXPORTED</span><span>'+(MR&&MR.generated_utc?MR.generated_utc.replace('T',' ').slice(0,16)+' UTC':'—')+'</span></div>';
-  body+='<div class="sec">PAPER-TRADE HISTORY</div>'+(mrSvgChart()||'<div class="flag">NO SERIES IN LOG YET.</div>');
+    '<div class="krow"><span>THREE DOWN DAYS</span><span>'+(MR&&MR.down3?'TRUE':'FALSE')+'</span></div>'+
+    '<div class="krow"><span>ES CLOSE</span><span>'+(MR&&MR.close!=null?MR.close.toFixed(2):'—')+'</span></div>'+
+    '<div class="krow"><span>SIGNAL RUN AT</span><span>'+(MR&&MR.logged_at?MR.logged_at.replace('T',' ').slice(0,16):'—')+'</span></div>'+
+    '<div class="krow"><span>EXPORTED</span><span>'+(MR&&MR.generated_utc?MR.generated_utc.replace('T',' ').slice(0,16)+' UTC':'—')+'</span></div>'+
+    (MR&&MR.verdict==='TRADE'?'<div class="sec">MECHANICAL PLAN · NEXT SESSION</div>'+
+      '<div class="krow"><span>ENTER</span><span>LONG 1 MES · 10:00 ET MKT</span></div>'+
+      '<div class="krow"><span>STOP</span><span>−2.0% FROM FILL · HARD</span></div>'+
+      '<div class="krow"><span>EXIT</span><span>15:55 ET MKT OR STOP</span></div>'+
+      '<div class="flag">NO RE-ENTRIES. NO DISCRETION. ONE TRADE, THEN DONE.</div>':'');
+  body+='<div class="sec">RSI2 HISTORY</div>'+(mrSvgChart()||'<div class="flag">NO SERIES IN LOG YET.</div>')+
+    (MR&&MR.has_pnl===false?'<div class="flag">SIGNAL LOG RECORDS DECISIONS ONLY — NO FILLS OR P&L, SO NO EQUITY CURVE IS SHOWN.</div>':'');
   if(MR&&MR.log&&MR.log.rows&&MR.log.rows.length){
     const cols=MR.log.columns,rows=MR.log.rows.slice(-30).reverse();
     const di=cols.findIndex(c=>/date|session|day|as.?of/i.test(c));
-    const vi=cols.findIndex(c=>/verdict|decision|signal|action|trade/i.test(c));
+    const vi=cols.findIndex(c=>/^trade_next_day$|verdict|decision/i.test(c));
     body+='<div class="sec">SIGNAL LOG · LAST '+rows.length+' OF '+(MR.log.total_rows||rows.length)+'</div>'+
       rows.map(r=>{
-        const isTrade=vi>=0&&!/no/i.test(r[vi]||'')&&/trade|long|buy|true|yes/i.test(r[vi]||'');
+        const isTrade=vi>=0&&/^(true|t|yes|1|trade)$/i.test(String(r[vi]||'').trim());
         const rest=cols.map((c,i)=>(i===di||i===vi)?null:c.toUpperCase()+' '+(r[i]??'')).filter(Boolean).join(' · ');
         return '<div class="arow"><div class="hd"><span>'+(di>=0?r[di]:'')+'</span>'+
           '<span class="'+(isTrade?'zneg':'')+'"'+(isTrade?'':' style="color:var(--text-dim)"')+'>'+
-          (vi>=0?String(r[vi]).toUpperCase():'')+'</span></div>'+
+          (vi>=0?(isTrade?'TRADE':'NO-TRADE'):'')+'</span></div>'+
           (rest?'<div class="mt">'+rest+'</div>':'')+'</div>';
       }).join('');
   }
