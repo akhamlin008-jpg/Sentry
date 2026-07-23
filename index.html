@@ -1759,6 +1759,7 @@ function openMrDock(){
   if(stale&&!sim)body+='<div class="warnbox stalebox">⚠ DATA IS STALE — LAST SIGNAL IS FROM '+MR.as_of+
     ' ('+sess+' SESSIONS AGO). THE SCHEDULED JOB HAS NOT RUN. DO NOT ACT ON THIS VERDICT.</div>';
   if(sim)body+='<div class="warnbox">SIMULATED NUMBERS — NOT A REAL SIGNAL. PIPELINE FILE UNREACHABLE.</div>';
+  if(!sim&&MR.cache_warning)body+='<div class="warnbox stalebox">⚠ '+String(MR.cache_warning).toUpperCase()+'</div>';
   const v=MR?MR.verdict:'?';
   const badgeCls=v==='TRADE'?'under':'hold';
   body+='<div class="sec">NEXT-SESSION VERDICT</div>'+
@@ -1768,6 +1769,7 @@ function openMrDock(){
     '<div class="krow"><span>RSI2 (CLOSE)</span><span>'+(MR&&MR.rsi2!=null?MR.rsi2.toFixed(1):'—')+'</span></div>'+
     '<div class="krow"><span>SIGNAL DATE</span><span>'+(MR&&MR.as_of?MR.as_of:'—')+'</span></div>'+
     '<div class="krow"><span>SESSIONS OLD</span><span'+(stale?' style="color:var(--bear)"':'')+'>'+(sess==null?'—':sess)+'</span></div>'+
+    '<div class="krow"><span>PRICE FILE</span><span>'+(MR&&MR.cache_file?String(MR.cache_file).split('/').pop():'—')+'</span></div>'+
     '<div class="krow"><span>CACHE LAST BAR</span><span>'+(MR&&MR.cache_last_bar_utc?MR.cache_last_bar_utc.replace('T',' ').slice(0,16)+' UTC':'UNKNOWN')+'</span></div>'+
     '<div class="krow"><span>EXPORTED</span><span>'+(MR&&MR.generated_utc?MR.generated_utc.replace('T',' ').slice(0,16)+' UTC':'—')+'</span></div>';
   body+='<div class="sec">PAPER-TRADE HISTORY</div>'+(mrSvgChart()||'<div class="flag">NO SERIES IN LOG YET.</div>');
