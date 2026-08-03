@@ -130,3 +130,5 @@ days = rc.liquidity_days(np.array([10e6]), np.array([50e6]), 0.20)
 check("liquidity days", abs(days[0] - 1.0) < 1e-9, f"days={days[0]:.3f}")
 
 print("\n" + ("ALL PASS" if not FAILS else f"FAILURES: {FAILS}"))
+if FAILS:                       # CI runs this file with `python`; a red run
+    raise SystemExit(1)         # must exit non-zero, not just print FAIL lines
