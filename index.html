@@ -1155,7 +1155,7 @@ function openRisk(){
   if(!RISK) RISK={book:rankPool('Composite').slice(0,8).map(s=>s.tk),extra:[],rank:'Composite',
     capital:1e6,sizing:'Risk parity (ERC)',tvol:12,conf:0.95,horizon:1,part:20,lw:true,shock:-35,rateBp:-150};
   riskCtl.style.display='block'; riskOut.style.display='block';
-  const pool=rankPool(RISK.rank).slice(0,16);
+  const pool=rankPool(RISK.rank).slice(0,20);
   const extras=RISK.extra.filter(tk=>!pool.some(s=>s.tk===tk)).map(tk=>STOCKS.find(s=>s.tk===tk)).filter(Boolean);
   riskCtl.innerHTML=`<h2>ASSUMPTIONS</h2><div class="sub">EVERY NUMBER COMPUTED · NOTHING HARD-CODED</div>
     <div class="sec">CANDIDATE RANKING</div>
