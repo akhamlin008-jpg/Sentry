@@ -1,0 +1,57 @@
+name: tests
+
+# The repo had three workflows (refresh, crisis, paper-trade) and none of them
+# ran the tests. This one does. Two jobs, two dependency footprints:
+#   runtime-tests : requirements.txt + pytest only. Proves the deployed
+#                   footprint (free-tier Streamlit, 8 deps) runs the suites.
+#   oracle-tests  : requirements-dev.txt (adds gs-quant -> scipy/statsmodels).
+#                   Validates the hand-rolled math against independent
+#                   implementations. Dev-only by contract -- the dep-guard
+#                   step and tests/test_import_guard.py enforce it.
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  runtime-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Dep guard -- runtime requirements stay lean
+        run: |
+          if grep -Ei 'gs.quant|scipy|statsmodels|scikit-learn' requirements.txt; then
+            echo "::error::dev-only dependency found in requirements.txt"
+            exit 1
+          fi
+      - name: Install runtime deps + pytest
+        run: pip install -r requirements.txt pytest
+      - name: Run pytest suites (oracle excluded)
+        run: pytest -m "not oracle"
+      - name: Run closed-form check scripts
+        run: |
+          python test_factor_risk.py
+          python Test_core.py
+
+  oracle-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install dev deps (gs-quant oracle stack)
+        run: pip install -r requirements-dev.txt
+      - name: Run oracle suite
+        run: pytest -m oracle
