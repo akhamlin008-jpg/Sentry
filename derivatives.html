@@ -1,0 +1,685 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SENTRY · Derivatives Bench</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700&family=Rajdhani:wght@400;500;600;700&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+<style>
+:root{
+  --void:#020610; --panel:rgba(4,14,26,.84); --panel-line:#0e3350;
+  --stark:#3ec6ff; --stark-hi:#b8ecff; --stark-dim:#0b2a40;
+  --bear:#ff4757; --bull:#38e08a; --amber:#ffb454;
+  --text:#9fd2ec; --text-dim:#4e7f9d;
+  --mono:'Share Tech Mono',monospace; --ui:'Rajdhani',sans-serif; --disp:'Orbitron',sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--void);color:var(--text);font-family:var(--ui);
+  padding:18px 20px 60px;min-height:100vh;
+  background-image:radial-gradient(circle at 20% -10%,rgba(62,198,255,.07),transparent 55%)}
+a{color:var(--stark)}
+button{font-family:var(--ui);cursor:pointer}
+:focus-visible{outline:1px solid var(--stark);outline-offset:2px}
+
+header{border-bottom:1px solid var(--panel-line);padding-bottom:12px;margin-bottom:16px;
+  display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end;justify-content:space-between}
+h1{font-family:var(--disp);font-size:15px;letter-spacing:.34em;color:var(--stark-hi);font-weight:700}
+.subttl{font-family:var(--mono);font-size:9.5px;letter-spacing:.2em;color:var(--text-dim);margin-top:5px;max-width:720px;line-height:1.6}
+#dataBadge{font-family:var(--mono);font-size:9px;letter-spacing:.18em;color:var(--amber);
+  border:1px solid rgba(255,180,84,.4);padding:5px 9px;background:rgba(30,18,4,.5)}
+#dataBadge.live{color:var(--stark);border-color:rgba(62,198,255,.5);background:rgba(4,20,34,.6)}
+
+.grid{display:grid;grid-template-columns:300px minmax(0,1fr) 330px;gap:16px;align-items:start}
+@media(max-width:1200px){.grid{grid-template-columns:1fr}}
+.card{background:var(--panel);border:1px solid var(--panel-line);border-left:2px solid var(--stark);
+  padding:14px 15px;margin-bottom:14px}
+.sec{font-family:var(--mono);font-size:9px;letter-spacing:.26em;color:var(--stark);
+  border-bottom:1px solid var(--panel-line);padding-bottom:5px;margin:0 0 11px}
+.sec.mt{margin-top:18px}
+.krow{display:flex;justify-content:space-between;font-family:var(--mono);font-size:11px;margin:5px 0;letter-spacing:.04em;gap:10px}
+.krow span:first-child{color:var(--text-dim)}
+.krow span:last-child{color:var(--stark-hi);white-space:nowrap}
+.note{font-family:var(--mono);font-size:9px;color:var(--text-dim);line-height:1.65;letter-spacing:.04em;margin-top:8px}
+.flag{font-family:var(--mono);font-size:9px;color:var(--amber);line-height:1.6;letter-spacing:.04em;margin-top:8px}
+
+.ctl{margin:9px 0}
+.ctl label{display:flex;justify-content:space-between;font-family:var(--mono);font-size:9.5px;
+  letter-spacing:.1em;color:var(--text-dim);margin-bottom:4px}
+.ctl label output{color:var(--stark-hi)}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:9px}
+select,input[type=number],input[type=text],input[type=date],textarea{
+  background:#04101d;border:1px solid var(--panel-line);color:var(--stark-hi);
+  font-family:var(--mono);font-size:11px;padding:6px 8px;width:100%}
+textarea{resize:vertical;min-height:90px;font-size:10px;line-height:1.5}
+input[type=range]{-webkit-appearance:none;width:100%;height:16px;background:transparent;padding:0}
+input[type=range]::-webkit-slider-runnable-track{height:2px;background:linear-gradient(90deg,var(--stark) var(--f,50%),var(--stark-dim) var(--f,50%))}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:12px;height:12px;margin-top:-5px;
+  background:var(--void);border:1.5px solid var(--stark);transform:rotate(45deg);box-shadow:0 0 8px rgba(62,198,255,.8)}
+input[type=range]::-moz-range-track{height:2px;background:var(--stark-dim)}
+input[type=range]::-moz-range-thumb{width:10px;height:10px;background:var(--void);border:1.5px solid var(--stark);border-radius:0;transform:rotate(45deg)}
+
+.btn{background:transparent;border:1px solid rgba(62,198,255,.5);color:var(--stark-hi);
+  font-family:var(--mono);font-size:9.5px;letter-spacing:.16em;padding:6px 11px;transition:background .18s}
+.btn:hover{background:rgba(62,198,255,.12)}
+.btn.warn{border-color:rgba(255,71,87,.5);color:var(--bear)}
+.btn.warn:hover{background:rgba(255,71,87,.12)}
+.btnrow{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+.chips{display:flex;flex-wrap:wrap;gap:5px;margin:8px 0 2px}
+.chip{font-family:var(--mono);font-size:9px;letter-spacing:.08em;padding:5px 9px;
+  border:1px solid var(--stark-dim);color:var(--text-dim);background:transparent}
+.chip:hover{border-color:var(--stark);color:var(--stark-hi);background:rgba(62,198,255,.1)}
+
+table{width:100%;border-collapse:collapse;font-family:var(--mono);font-size:10px;letter-spacing:.03em}
+th{color:var(--text-dim);font-weight:400;text-align:right;padding:5px 4px;border-bottom:1px solid var(--panel-line);
+  font-size:8.5px;letter-spacing:.14em;white-space:nowrap}
+th:first-child,td:first-child{text-align:left}
+td{padding:5px 4px;border-bottom:1px solid rgba(14,51,80,.5);text-align:right;color:var(--text);white-space:nowrap}
+tr.net td{border-top:1px solid var(--stark);border-bottom:none;color:var(--stark-hi);padding-top:8px}
+tr.dead td{color:var(--text-dim);opacity:.55}
+.pos{color:var(--bull)}.neg{color:var(--bear)}
+.scroll{overflow-x:auto}
+
+.legrow{display:grid;grid-template-columns:64px 52px 60px 46px 52px 24px;gap:5px;margin:5px 0;align-items:center}
+.legrow input,.legrow select{padding:4px 5px;font-size:10px}
+.leghdr{display:grid;grid-template-columns:64px 52px 60px 46px 52px 24px;gap:5px;
+  font-family:var(--mono);font-size:8px;letter-spacing:.12em;color:var(--text-dim);margin-bottom:2px}
+.x{background:transparent;border:1px solid var(--stark-dim);color:var(--text-dim);font-family:var(--mono);
+  font-size:10px;padding:4px 0;width:100%}
+.x:hover{border-color:var(--bear);color:var(--bear)}
+
+svg{display:block;width:100%;height:auto}
+.gridline{stroke:var(--stark-dim);stroke-width:1}
+.axis{stroke:var(--panel-line);stroke-width:1}
+.axlabel{font-family:var(--mono);font-size:8px;fill:var(--text-dim);letter-spacing:.08em}
+
+.hm{width:100%;border-collapse:collapse;font-family:var(--mono);font-size:9px}
+.hm th{padding:4px 2px;text-align:center;font-size:8px}
+.hm td{padding:5px 2px;text-align:center;border:1px solid rgba(2,6,16,.9);color:#dff2ff}
+.hm td.axis{background:transparent;color:var(--text-dim);border:none;font-size:8.5px}
+
+.test{display:flex;justify-content:space-between;font-family:var(--mono);font-size:9.5px;margin:3px 0;gap:8px}
+.test span:first-child{color:var(--text-dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.test b{font-weight:400}
+.ok{color:var(--bull)}.fail{color:var(--bear)}
+footer{margin-top:24px;border-top:1px solid var(--panel-line);padding-top:12px;
+  font-family:var(--mono);font-size:9px;color:var(--text-dim);line-height:1.7;letter-spacing:.05em}
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>DERIVATIVES BENCH</h1>
+    <div class="subttl">
+      LOCAL BLACK-SCHOLES-MERTON / BLACK-76 PRICER · GREEKS · SHOCK-GRID SCENARIO ENGINE ·
+      MULTI-LEG STRATEGY P&amp;L. EVERY NUMBER ON THIS PAGE IS COMPUTED IN YOUR BROWSER FROM THE
+      INPUTS SHOWN. NO VENDOR, NO API KEY, NO ENTITLEMENT.
+    </div>
+  </div>
+  <div id="dataBadge">MANUAL INPUT · book.json NOT FETCHED</div>
+</header>
+
+<div class="grid">
+
+  <!-- ================= LEFT: inputs + book ================= -->
+  <div>
+    <div class="card">
+      <div class="sec">MARKET STATE</div>
+      <div class="ctl">
+        <label>CONTRACT BASIS</label>
+        <select id="basis">
+          <option value="equity">EQUITY SPOT (BSM, carry = r − q)</option>
+          <option value="future">FUTURES (BLACK-76, q ≡ r)</option>
+        </select>
+      </div>
+      <div class="two">
+        <div class="ctl"><label>SPOT / FORWARD</label><input type="number" id="S" value="640" step="0.01"></div>
+        <div class="ctl"><label>MULTIPLIER</label><input type="number" id="mult" value="100" step="1"></div>
+      </div>
+      <div class="two">
+        <div class="ctl"><label>RATE r (%)</label><input type="number" id="r" value="4.20" step="0.05"></div>
+        <div class="ctl"><label>DIV YIELD q (%)</label><input type="number" id="q" value="1.20" step="0.05"></div>
+      </div>
+      <div class="ctl"><label>AS OF</label><input type="date" id="asof"></div>
+      <div class="note">
+        MULTIPLIER IS CONTRACT SIZE: 100 FOR LISTED EQUITY OPTIONS, 50 FOR ES, 5 FOR MES.
+        ALL $ FIGURES BELOW = PER-UNIT VALUE × QTY × MULTIPLIER.
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="sec">POSITION BOOK</div>
+      <div class="leghdr">
+        <span>TYPE</span><span>QTY</span><span>STRIKE</span><span>DTE</span><span>VOL%</span><span></span>
+      </div>
+      <div id="legs"></div>
+      <div class="btnrow">
+        <button class="btn" onclick="addLeg()">+ LEG</button>
+        <button class="btn warn" onclick="clearLegs()">CLEAR</button>
+      </div>
+      <div class="sec mt">STRATEGY PRESETS</div>
+      <div class="chips" id="presets"></div>
+      <div class="note">
+        PRESETS SIZE STRIKES OFF CURRENT SPOT AND ROUND TO THE NEAREST 5. THEY ARE STARTING
+        GEOMETRY, NOT RECOMMENDATIONS — NOTHING HERE KNOWS WHETHER THE TRADE IS GOOD.
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="sec">IMPLIED VOL SOLVER</div>
+      <div class="two">
+        <div class="ctl"><label>LEG #</label><input type="number" id="ivLeg" value="1" min="1" step="1"></div>
+        <div class="ctl"><label>MARKET PRICE</label><input type="number" id="ivPx" value="12.50" step="0.01"></div>
+      </div>
+      <div class="btnrow"><button class="btn" onclick="solveIV()">SOLVE → WRITE VOL</button></div>
+      <div id="ivOut" class="note">NEWTON WITH VEGA, BISECTION FALLBACK ON [0.0001, 5.0].
+        NO-ARBITRAGE BOUNDS CHECKED BEFORE SOLVING.</div>
+    </div>
+  </div>
+
+  <!-- ================= CENTRE: valuation + payoff ================= -->
+  <div>
+    <div class="card">
+      <div class="sec">VALUATION &amp; GREEKS</div>
+      <div class="scroll"><table id="valTable"></table></div>
+      <div class="note">
+        VEGA PER 1 VOL POINT · THETA PER CALENDAR DAY · RHO PER 1% RATE MOVE ·
+        VANNA = dDELTA/dVOL PER VOL POINT · VOLGA = dVEGA/dVOL PER VOL POINT.
+        DOLLAR GREEKS ARE SCALED BY QTY × MULTIPLIER; A SPOT/FUTURES LEG CARRIES DELTA 1 AND
+        NOTHING ELSE — ITS FINANCING AND CARRY ARE NOT MODELLED.
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="sec">P&amp;L PROFILE</div>
+      <div class="ctl">
+        <label>HORIZON <output id="hzOut">0 D</output></label>
+        <input type="range" id="hz" min="0" max="180" step="1" value="0">
+      </div>
+      <div class="ctl">
+        <label>SPOT RANGE ± <output id="rgOut">20 %</output></label>
+        <input type="range" id="rg" min="5" max="60" step="1" value="20">
+      </div>
+      <div id="chart"></div>
+      <div class="krow"><span>BREAKEVENS AT HORIZON</span><span id="beOut">—</span></div>
+      <div class="krow"><span>MAX GAIN / LOSS IN RANGE</span><span id="mmOut">—</span></div>
+      <div class="flag">
+        THE HORIZON CURVE REVALUES EVERY LEG AT ITS OWN REMAINING TIME (DTE − HORIZON), SO
+        CALENDAR SPREADS ARE HANDLED CORRECTLY. LEGS THAT HAVE EXPIRED BY THE HORIZON ARE
+        SETTLED AT INTRINSIC. MAX GAIN / LOSS IS BOUNDED BY THE PLOTTED RANGE ONLY — IT IS NOT
+        A CLAIM ABOUT THE TRUE TAIL.
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= RIGHT: scenarios + tests ================= -->
+  <div>
+    <div class="card">
+      <div class="sec">SHOCK GRID · Δ P&amp;L ($)</div>
+      <div class="two">
+        <div class="ctl"><label>SPOT STEP %</label><input type="number" id="sStep" value="5" step="1"></div>
+        <div class="ctl"><label>VOL STEP PTS</label><input type="number" id="vStep" value="5" step="1"></div>
+      </div>
+      <div class="scroll"><table class="hm" id="hmTable"></table></div>
+      <div class="note">
+        ROWS = SPOT SHOCK, COLUMNS = ADDITIVE PARALLEL VOL SHOCK IN POINTS, EVALUATED AT THE
+        HORIZON SET ON THE LEFT. THE SHOCK IS APPLIED TO EVERY LEG'S VOL EQUALLY — THIS IS A
+        FLAT-SURFACE ASSUMPTION AND IT IS WRONG IN THE DIRECTION THAT MATTERS: REAL EQUITY
+        SKEW STEEPENS WHEN SPOT FALLS, SO DOWNSIDE CELLS UNDERSTATE A LONG-PUT POSITION'S GAIN
+        AND UNDERSTATE A SHORT-PUT POSITION'S LOSS.
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="sec">NAMED SCENARIOS</div>
+      <div id="named"></div>
+      <div class="note">
+        THE −35% / +25 VOL CASE MIRRORS THE DEFAULT RECESSION SHOCK ON THE RISK REPORT PAGE SO
+        THE TWO SURFACES CAN BE READ AGAINST EACH OTHER.
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="sec">SELF-TEST · <span id="testHdr">—</span></div>
+      <div id="tests"></div>
+      <div class="note">
+        CLOSED-FORM CHECKS RUN ON EVERY PAGE LOAD AGAINST ANSWERS KNOWN BY CONSTRUCTION.
+        A RED LINE HERE MEANS THE NUMBERS ABOVE ARE WRONG. DO NOT TRUST A PAGE WHOSE TESTS FAIL.
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="sec">WIRE-UP CONTRACT</div>
+      <div class="note">
+        ON LOAD THIS PAGE TRIES <b>./book.json</b> AND FALLS BACK TO MANUAL INPUT, THE SAME
+        PATTERN THE HUB USES FOR signal.json. COMMIT THAT FILE FROM THE REFRESH JOB AND THE
+        BADGE GOES LIVE. SHAPE:
+      </div>
+      <textarea id="ioBox" spellcheck="false"></textarea>
+      <div class="btnrow">
+        <button class="btn" onclick="exportBook()">EXPORT ↓</button>
+        <button class="btn" onclick="importBook()">IMPORT ↑</button>
+      </div>
+      <div id="ioMsg" class="flag"></div>
+    </div>
+  </div>
+</div>
+
+<footer>
+  <b>MODEL ASSUMPTIONS, STATED NOT BURIED.</b> European exercise only — American early exercise
+  is not modelled and this page will misprice deep-ITM American puts. Constant volatility per
+  leg; no smile, no term structure, no stochastic vol. Constant continuous rate and dividend
+  yield. No borrow cost, no financing spread, no transaction cost, no bid-ask. Black-76 is
+  reached by setting q ≡ r, which is exact for a futures underlier. Greeks are analytic
+  first/second-order sensitivities, valid locally — they are not a substitute for a full
+  revaluation, which is what the shock grid does instead.
+  <br><br>
+  <b>WHY THIS IS LOCAL CODE AND NOT GS-QUANT.</b> GS Quant's pricing, risk-measure and scenario
+  engines execute server-side and require Marquee credentials issued to institutional clients.
+  The object model and the shock-based scenario framing here are borrowed as design references;
+  none of Goldman's code or data is used or required. See SPEC-12 for the assessment.
+  <br><br>
+  <b>NO EDGE IS CLAIMED ANYWHERE ON THIS PAGE.</b> It values a position you specify under
+  assumptions you specify. It does not know whether the volatility you typed is the right one.
+</footer>
+
+<script>
+/* ===================================================================
+   NUMERICS
+   =================================================================== */
+// Hart (1968) double-precision cumulative normal. Accurate to ~1e-15.
+function ncdf(x){
+  const z=Math.abs(x); let c;
+  if(z>37) c=0;
+  else{
+    const e=Math.exp(-z*z/2);
+    if(z<7.07106781186547){
+      let b=3.52624965998911e-02*z+0.700383064443688;
+      b=b*z+6.37396220353165; b=b*z+33.912866078383; b=b*z+112.079291497871;
+      b=b*z+221.213596169931; b=b*z+220.206867912376;
+      let d=8.83883476483184e-02*z+1.75566716318264;
+      d=d*z+16.064177579207; d=d*z+86.7807322029461; d=d*z+296.564248779674;
+      d=d*z+637.333633378831; d=d*z+793.826512519948; d=d*z+440.413735824752;
+      c=e*b/d;
+    } else {
+      let b=z+0.65; b=z+4/b; b=z+3/b; b=z+2/b; b=z+1/b;
+      c=e/(b*2.506628274631);
+    }
+  }
+  return x>0 ? 1-c : c;
+}
+function npdf(x){ return Math.exp(-0.5*x*x)/2.5066282746310002; }
+
+/* Black-Scholes-Merton with continuous dividend yield q.
+   Futures / Black-76 is the special case q = r.
+   Returns per-unit price and RAW greeks (per 1.00 of the underlying variable). */
+function bsm(type,S,K,T,r,q,v){
+  const cp = type==='PUT' ? -1 : 1;
+  const df=Math.exp(-r*T), dq=Math.exp(-q*T);
+  if(type==='UNDER') return {px:S,delta:1,gamma:0,vega:0,theta:0,rho:0,vanna:0,volga:0};
+  if(T<=1e-9||v<=1e-9){
+    const F=S*Math.exp((r-q)*T);
+    const itm = cp*(F-K) > 0;
+    return {px:df*Math.max(cp*(F-K),0), delta: itm?cp*dq:0,
+            gamma:0,vega:0,theta:0,rho: itm?cp*K*T*df:0, vanna:0,volga:0};
+  }
+  const sq=Math.sqrt(T), sv=v*sq;
+  const d1=(Math.log(S/K)+(r-q+0.5*v*v)*T)/sv, d2=d1-sv;
+  const nd1=npdf(d1);
+  const px    = cp*(S*dq*ncdf(cp*d1) - K*df*ncdf(cp*d2));
+  const delta = cp*dq*ncdf(cp*d1);
+  const gamma = dq*nd1/(S*sv);
+  const vega  = S*dq*nd1*sq;
+  const theta = -S*dq*nd1*v/(2*sq) - cp*r*K*df*ncdf(cp*d2) + cp*q*S*dq*ncdf(cp*d1);
+  const rho   = cp*K*T*df*ncdf(cp*d2);
+  const vanna = -dq*nd1*d2/v;
+  const volga = vega*d1*d2/v;
+  return {px,delta,gamma,vega,theta,rho,vanna,volga};
+}
+
+function impliedVol(type,S,K,T,r,q,mkt){
+  if(type==='UNDER') return {ok:false,why:'leg is not an option'};
+  if(!(T>0))         return {ok:false,why:'expired leg'};
+  const df=Math.exp(-r*T), dq=Math.exp(-q*T);
+  const lo = Math.max(type==='CALL' ? S*dq-K*df : K*df-S*dq, 0);
+  const hi = type==='CALL' ? S*dq : K*df;
+  if(!(mkt>lo+1e-10)) return {ok:false,why:'price ≤ intrinsic bound '+lo.toFixed(4)};
+  if(!(mkt<hi-1e-10)) return {ok:false,why:'price ≥ upper bound '+hi.toFixed(4)};
+  let v=Math.sqrt(2*Math.PI/T)*mkt/S;                 // Brenner-Subrahmanyam seed
+  if(!isFinite(v)||v<=0) v=0.2;
+  v=Math.min(Math.max(v,1e-3),4);
+  for(let i=0;i<80;i++){
+    const o=bsm(type,S,K,T,r,q,v), diff=o.px-mkt;
+    if(Math.abs(diff)<1e-11) return {ok:true,iv:v,how:'newton('+i+')'};
+    if(!(o.vega>1e-10)) break;
+    let step=diff/o.vega; step=Math.max(Math.min(step,0.5),-0.5);
+    const vn=v-step;
+    if(!(vn>1e-6)||vn>5) break;
+    v=vn;
+  }
+  let a=1e-6,b=5;                                      // guaranteed fallback
+  for(let i=0;i<200;i++){
+    const m=0.5*(a+b);
+    if(bsm(type,S,K,T,r,q,m).px>mkt) b=m; else a=m;
+  }
+  return {ok:true,iv:0.5*(a+b),how:'bisect'};
+}
+
+/* ===================================================================
+   STATE
+   =================================================================== */
+let legs=[];
+const $=id=>document.getElementById(id);
+const YEAR=365;   // calendar-day convention, stated on the page
+
+function mkt(){
+  const basis=$('basis').value;
+  const r=(+$('r').value||0)/100;
+  return {S:+$('S').value||0, r, q: basis==='future' ? r : (+$('q').value||0)/100,
+          mult:+$('mult').value||1, basis};
+}
+function addLeg(l){
+  const S=+$('S').value||100;
+  legs.push(Object.assign({type:'PUT',qty:-1,K:Math.round(S/5)*5,dte:30,vol:20}, l||{}));
+  renderLegs(); recompute();
+}
+function clearLegs(){ legs=[]; renderLegs(); recompute(); }
+function delLeg(i){ legs.splice(i,1); renderLegs(); recompute(); }
+
+function renderLegs(){
+  $('legs').innerHTML = legs.map((l,i)=>`
+    <div class="legrow">
+      <select onchange="legs[${i}].type=this.value;recompute()">
+        ${['CALL','PUT','UNDER'].map(t=>`<option ${t===l.type?'selected':''}>${t}</option>`).join('')}
+      </select>
+      <input type="number" step="1"    value="${l.qty}"  oninput="legs[${i}].qty=+this.value;recompute()">
+      <input type="number" step="0.5"  value="${l.K}"    oninput="legs[${i}].K=+this.value;recompute()">
+      <input type="number" step="1"    value="${l.dte}"  oninput="legs[${i}].dte=+this.value;recompute()">
+      <input type="number" step="0.5"  value="${l.vol}"  oninput="legs[${i}].vol=+this.value;recompute()">
+      <button class="x" onclick="delLeg(${i})">×</button>
+    </div>`).join('') || '<div class="note">NO LEGS. ADD ONE OR PICK A PRESET.</div>';
+}
+
+/* ---- valuation of the whole book at an arbitrary market state ---- */
+function bookAt(S,volShiftPts,daysFwd){
+  const m=mkt(); let out={pv:0,delta:0,gamma:0,vega:0,theta:0,rho:0,vanna:0,volga:0,rows:[]};
+  for(const l of legs){
+    const T=Math.max((l.dte-daysFwd)/YEAR,0);
+    const v=Math.max((l.vol+volShiftPts)/100,0);
+    const g=bsm(l.type,S,l.K,T,m.r,m.q,v);
+    const sc=l.qty*m.mult;
+    const row={leg:l,T,px:g.px,
+      pv:g.px*sc, delta:g.delta*sc, gamma:g.gamma*sc,
+      vega:g.vega*sc/100, theta:g.theta*sc/YEAR, rho:g.rho*sc/100,
+      vanna:g.vanna*sc/100, volga:g.volga*sc/10000, expired:(l.type!=='UNDER'&&T<=0)};
+    out.rows.push(row);
+    for(const k of ['pv','delta','gamma','vega','theta','rho','vanna','volga']) out[k]+=row[k];
+  }
+  return out;
+}
+
+/* ===================================================================
+   RENDER
+   =================================================================== */
+const f2=x=>(Math.abs(x)>=1e6? (x/1e6).toFixed(2)+'M' : x.toFixed(2));
+const money=x=>(x<0?'−$':'$')+f2(Math.abs(x));
+const sgn=x=>x>=0?'pos':'neg';
+
+function recompute(){
+  const m=mkt(), H=+$('hz').value;
+  $('hzOut').textContent=H+' D';
+  $('rgOut').textContent=$('rg').value+' %';
+  ['hz','rg'].forEach(id=>{const e=$(id);e.style.setProperty('--f',((e.value-e.min)/(e.max-e.min)*100)+'%');});
+  $('q').disabled = (m.basis==='future');
+
+  const now=bookAt(m.S,0,0);
+
+  /* valuation table */
+  $('valTable').innerHTML =
+    '<tr><th>LEG</th><th>PX</th><th>PV $</th><th>Δ$</th><th>Γ$</th><th>VEGA$</th><th>Θ$/D</th><th>RHO$</th><th>VANNA</th><th>VOLGA</th></tr>'
+    + now.rows.map((rw,i)=>{
+        const l=rw.leg;
+        const name=l.type==='UNDER' ? `${i+1} ${l.qty>0?'LONG':'SHORT'} UNDER`
+                 : `${i+1} ${l.qty>0?'+':'−'}${Math.abs(l.qty)} ${l.type[0]}${l.K} ${l.dte}d`;
+        return `<tr class="${rw.expired?'dead':''}"><td>${name}</td><td>${rw.px.toFixed(3)}</td>
+          <td class="${sgn(rw.pv)}">${money(rw.pv)}</td><td>${f2(rw.delta)}</td><td>${rw.gamma.toFixed(3)}</td>
+          <td>${f2(rw.vega)}</td><td>${f2(rw.theta)}</td><td>${f2(rw.rho)}</td>
+          <td>${rw.vanna.toFixed(3)}</td><td>${rw.volga.toFixed(3)}</td></tr>`;
+      }).join('')
+    + `<tr class="net"><td>NET BOOK</td><td>—</td>
+        <td class="${sgn(now.pv)}">${money(now.pv)}</td><td>${f2(now.delta)}</td><td>${now.gamma.toFixed(3)}</td>
+        <td>${f2(now.vega)}</td><td>${f2(now.theta)}</td><td>${f2(now.rho)}</td>
+        <td>${now.vanna.toFixed(3)}</td><td>${now.volga.toFixed(3)}</td></tr>`;
+
+  drawChart(now.pv,H);
+  drawGrid(now.pv,H);
+  drawNamed(now.pv,H);
+}
+
+function drawChart(pv0,H){
+  const m=mkt(), pct=+$('rg').value/100, N=121;
+  const lo=m.S*(1-pct), hi=m.S*(1+pct);
+  const xs=[],a=[],b=[];
+  for(let i=0;i<N;i++){
+    const S=lo+(hi-lo)*i/(N-1);
+    xs.push(S);
+    a.push(bookAt(S,0,0).pv-pv0);      // instantaneous re-spot
+    b.push(bookAt(S,0,H).pv-pv0);      // at horizon
+  }
+  const all=a.concat(b), ymin=Math.min(...all,0), ymax=Math.max(...all,0);
+  const pad=(ymax-ymin)*0.12||1, Y0=ymin-pad, Y1=ymax+pad;
+  const W=640,Hh=290,L=54,R=12,Tp=12,B=26;
+  const px=S=>L+(S-lo)/(hi-lo)*(W-L-R);
+  const py=y=>Tp+(Y1-y)/(Y1-Y0)*(Hh-Tp-B);
+  const path=arr=>arr.map((y,i)=>(i?'L':'M')+px(xs[i]).toFixed(1)+' '+py(y).toFixed(1)).join(' ');
+
+  let ticks='';
+  for(let i=0;i<=4;i++){
+    const y=Y0+(Y1-Y0)*i/4;
+    ticks+=`<line class="gridline" x1="${L}" y1="${py(y).toFixed(1)}" x2="${W-R}" y2="${py(y).toFixed(1)}" opacity=".45"/>
+            <text class="axlabel" x="4" y="${(py(y)+3).toFixed(1)}">${money(y)}</text>`;
+  }
+  for(let i=0;i<=4;i++){
+    const S=lo+(hi-lo)*i/4;
+    ticks+=`<text class="axlabel" x="${px(S).toFixed(1)}" y="${Hh-8}" text-anchor="middle">${S.toFixed(0)}</text>`;
+  }
+  // breakevens on the horizon curve
+  const bes=[];
+  for(let i=1;i<N;i++) if((b[i-1]<0)!==(b[i]<0)){
+    const t=Math.abs(b[i-1])/(Math.abs(b[i-1])+Math.abs(b[i]));
+    bes.push(xs[i-1]+(xs[i]-xs[i-1])*t);
+  }
+  $('beOut').textContent = bes.length? bes.map(x=>x.toFixed(2)).join(' · ') : 'NONE IN RANGE';
+  $('mmOut').innerHTML = `<span class="pos">${money(Math.max(...b))}</span> / <span class="neg">${money(Math.min(...b))}</span>`;
+
+  $('chart').innerHTML=`<svg viewBox="0 0 ${W} ${Hh}" preserveAspectRatio="none" style="height:290px">
+    ${ticks}
+    <line class="axis" x1="${L}" y1="${py(0).toFixed(1)}" x2="${W-R}" y2="${py(0).toFixed(1)}" stroke="#0e3350"/>
+    <line x1="${px(m.S).toFixed(1)}" y1="${Tp}" x2="${px(m.S).toFixed(1)}" y2="${Hh-B}"
+          stroke="var(--amber)" stroke-width="1" opacity=".7" stroke-dasharray="3 3"/>
+    ${bes.map(x=>`<line x1="${px(x).toFixed(1)}" y1="${Hh-B-6}" x2="${px(x).toFixed(1)}" y2="${Hh-B}"
+          stroke="var(--stark-hi)" stroke-width="2"/>`).join('')}
+    <path d="${path(a)}" fill="none" stroke="var(--stark-dim)" stroke-width="1.5"/>
+    <path d="${path(b)}" fill="none" stroke="var(--stark)" stroke-width="2"/>
+    <text class="axlabel" x="${W-R}" y="${Tp+10}" text-anchor="end">
+      SOLID = HORIZON ${H}D · DIM = INSTANTANEOUS · AMBER = SPOT</text>
+  </svg>`;
+}
+
+function heat(v,mx){
+  if(!mx) return 'transparent';
+  const t=Math.max(-1,Math.min(1,v/mx));
+  return t>=0 ? `rgba(56,224,138,${(0.10+0.55*t).toFixed(3)})`
+              : `rgba(255,71,87,${(0.10+0.55*-t).toFixed(3)})`;
+}
+function drawGrid(pv0,H){
+  const m=mkt(), ss=+$('sStep').value||5, vs=+$('vStep').value||5;
+  const srow=[-2,-1,0,1,2].map(k=>k*ss), vcol=[-2,-1,0,1,2].map(k=>k*vs);
+  const cells=srow.map(s=>vcol.map(v=>bookAt(m.S*(1+s/100),v,H).pv-pv0));
+  const mx=Math.max(...cells.flat().map(Math.abs))||1;
+  $('hmTable').innerHTML =
+    '<tr><th class="axis">SPOT \\ VOL</th>'+vcol.map(v=>`<th>${v>0?'+':''}${v}</th>`).join('')+'</tr>'
+    + srow.map((s,i)=>`<tr><td class="axis">${s>0?'+':''}${s}%</td>`
+      + cells[i].map(c=>`<td style="background:${heat(c,mx)}">${money(c)}</td>`).join('')+'</tr>').join('');
+}
+
+const NAMED=[
+  {n:'RECESSION (RISK RPT DEFAULT)', s:-35, v:+25},
+  {n:'SHARP SELLOFF',                s:-10, v:+8},
+  {n:'ORDERLY DRIFT DOWN',           s:-5,  v:+2},
+  {n:'UNCHANGED (CARRY ONLY)',       s:0,   v:0},
+  {n:'VOL CRUSH, SPOT FLAT',         s:0,   v:-6},
+  {n:'MELT-UP',                      s:+8,  v:-4}
+];
+function drawNamed(pv0,H){
+  const m=mkt();
+  $('named').innerHTML = NAMED.map(sc=>{
+    const d=bookAt(m.S*(1+sc.s/100),sc.v,H).pv-pv0;
+    return `<div class="krow"><span>${sc.n}</span>
+      <span class="${sgn(d)}">${money(d)}</span></div>
+      <div class="note" style="margin:-2px 0 7px">SPOT ${sc.s>0?'+':''}${sc.s}% · VOL ${sc.v>0?'+':''}${sc.v}PTS · ${H}D</div>`;
+  }).join('');
+}
+
+/* ===================================================================
+   IV SOLVER HOOK
+   =================================================================== */
+function solveIV(){
+  const i=(+$('ivLeg').value||1)-1, m=mkt();
+  if(!legs[i]) return $('ivOut').innerHTML='<span class="fail">NO SUCH LEG.</span>';
+  const l=legs[i], T=l.dte/YEAR;
+  const res=impliedVol(l.type,m.S,l.K,T,m.r,m.q,+$('ivPx').value);
+  if(!res.ok) return $('ivOut').innerHTML=`<span class="fail">NO SOLUTION — ${res.why.toUpperCase()}.</span>`;
+  l.vol=res.iv*100; renderLegs(); recompute();
+  $('ivOut').innerHTML=`LEG ${i+1} IV = <b style="color:var(--stark-hi)">${(res.iv*100).toFixed(3)}%</b>
+    · ${res.how.toUpperCase()} · WRITTEN TO THE BOOK.`;
+}
+
+/* ===================================================================
+   PRESETS
+   =================================================================== */
+const R5=x=>Math.round(x/5)*5;
+const PRESETS={
+  'PUT SPREAD 60D':  S=>[{type:'PUT',qty:1,K:R5(S*.95),dte:60,vol:20},{type:'PUT',qty:-1,K:R5(S*.88),dte:60,vol:23}],
+  'COLLAR 60D':      S=>[{type:'UNDER',qty:1,K:0,dte:0,vol:0},{type:'PUT',qty:1,K:R5(S*.95),dte:60,vol:20},{type:'CALL',qty:-1,K:R5(S*1.05),dte:60,vol:17}],
+  'ATM STRADDLE 30D':S=>[{type:'CALL',qty:1,K:R5(S),dte:30,vol:18},{type:'PUT',qty:1,K:R5(S),dte:30,vol:19}],
+  'COVERED CALL 30D':S=>[{type:'UNDER',qty:1,K:0,dte:0,vol:0},{type:'CALL',qty:-1,K:R5(S*1.04),dte:30,vol:17}],
+  'TAIL HEDGE 90D':  S=>[{type:'PUT',qty:2,K:R5(S*.85),dte:90,vol:26}],
+  'SHORT STRANGLE':  S=>[{type:'CALL',qty:-1,K:R5(S*1.06),dte:30,vol:17},{type:'PUT',qty:-1,K:R5(S*.94),dte:30,vol:22}],
+  'CALENDAR PUT':    S=>[{type:'PUT',qty:-1,K:R5(S*.97),dte:30,vol:20},{type:'PUT',qty:1,K:R5(S*.97),dte:90,vol:21}]
+};
+$('presets').innerHTML=Object.keys(PRESETS).map(k=>`<button class="chip" onclick="loadPreset('${k}')">${k}</button>`).join('');
+function loadPreset(k){ legs=PRESETS[k](+$('S').value||100).map(o=>Object.assign({},o)); renderLegs(); recompute(); }
+
+/* ===================================================================
+   IO
+   =================================================================== */
+function bookJSON(){
+  const m=mkt();
+  return {as_of:$('asof').value, basis:m.basis, spot:m.S, multiplier:m.mult,
+          rate_pct:+$('r').value, div_yield_pct:+$('q').value,
+          legs:legs.map(l=>({type:l.type,qty:l.qty,strike:l.K,dte:l.dte,vol_pct:l.vol}))};
+}
+function exportBook(){ $('ioBox').value=JSON.stringify(bookJSON(),null,2); $('ioMsg').textContent='EXPORTED. COMMIT AS book.json TO GO LIVE.'; }
+function importBook(){
+  try{ applyBook(JSON.parse($('ioBox').value)); $('ioMsg').textContent='IMPORTED OK.'; }
+  catch(e){ $('ioMsg').innerHTML='<span class="fail">PARSE FAILED — '+String(e.message).toUpperCase()+'</span>'; }
+}
+function applyBook(j){
+  if(j.basis) $('basis').value=j.basis;
+  if(j.spot!=null) $('S').value=j.spot;
+  if(j.multiplier!=null) $('mult').value=j.multiplier;
+  if(j.rate_pct!=null) $('r').value=j.rate_pct;
+  if(j.div_yield_pct!=null) $('q').value=j.div_yield_pct;
+  if(j.as_of) $('asof').value=j.as_of;
+  if(Array.isArray(j.legs)) legs=j.legs.map(l=>({type:l.type,qty:+l.qty,K:+l.strike,dte:+l.dte,vol:+l.vol_pct}));
+  renderLegs(); recompute();
+}
+async function tryFetchBook(){
+  try{
+    const ctl=new AbortController(), to=setTimeout(()=>ctl.abort(),5000);
+    const res=await fetch('./book.json',{cache:'no-store',signal:ctl.signal});
+    clearTimeout(to);
+    if(!res.ok) return;
+    const j=await res.json();
+    applyBook(j);
+    const b=$('dataBadge'); b.classList.add('live');
+    b.textContent='◈ LIVE · book.json'+(j.as_of?' · '+j.as_of:'');
+  }catch(e){ /* stays manual, badge stays amber — silence is the fallback, not an error */ }
+}
+
+/* ===================================================================
+   SELF-TESTS — closed-form answers, known by construction
+   =================================================================== */
+function runTests(){
+  const out=[]; let pass=0;
+  const ck=(name,cond,detail)=>{ out.push({name,cond,detail:detail||''}); if(cond) pass++; };
+  const S=100,K=105,T=0.75,r=0.04,q=0.015,v=0.22;
+  const c=bsm('CALL',S,K,T,r,q,v), p=bsm('PUT',S,K,T,r,q,v);
+
+  ck('put-call parity', Math.abs((c.px-p.px)-(S*Math.exp(-q*T)-K*Math.exp(-r*T)))<1e-10,
+     ((c.px-p.px)-(S*Math.exp(-q*T)-K*Math.exp(-r*T))).toExponential(1));
+  ck('call delta in (0, e^-qT]', c.delta>0 && c.delta<=Math.exp(-q*T)+1e-12, c.delta.toFixed(4));
+  ck('put delta in [-e^-qT, 0)', p.delta<0 && p.delta>=-Math.exp(-q*T)-1e-12, p.delta.toFixed(4));
+  ck('gamma identical call/put', Math.abs(c.gamma-p.gamma)<1e-14);
+  ck('vega identical call/put',  Math.abs(c.vega-p.vega)<1e-12);
+  ck('gamma > 0, vega > 0', c.gamma>0 && c.vega>0);
+
+  const c2=bsm('CALL',S,K,T,r,q,v+0.01);
+  ck('call monotone in vol', c2.px>c.px, '+'+(c2.px-c.px).toFixed(5));
+  const c3=bsm('CALL',S+0.01,K,T,r,q,v);
+  ck('call monotone in spot', c3.px>c.px);
+
+  const fd=(bsm('CALL',S+1e-4,K,T,r,q,v).px-bsm('CALL',S-1e-4,K,T,r,q,v).px)/2e-4;
+  ck('delta = dPx/dS (finite diff)', Math.abs(fd-c.delta)<1e-6, Math.abs(fd-c.delta).toExponential(1));
+  const fg=(bsm('CALL',S+1e-3,K,T,r,q,v).px-2*c.px+bsm('CALL',S-1e-3,K,T,r,q,v).px)/1e-6;
+  ck('gamma = d2Px/dS2 (finite diff)', Math.abs(fg-c.gamma)<1e-5, Math.abs(fg-c.gamma).toExponential(1));
+  const fv=(bsm('CALL',S,K,T,r,q,v+1e-5).px-bsm('CALL',S,K,T,r,q,v-1e-5).px)/2e-5;
+  ck('vega = dPx/dVol (finite diff)', Math.abs(fv-c.vega)<1e-5, Math.abs(fv-c.vega).toExponential(1));
+
+  const iv=impliedVol('CALL',S,K,T,r,q,c.px);
+  ck('IV round-trip to 1e-6', iv.ok && Math.abs(iv.iv-v)<1e-6, iv.ok?iv.how:'no solution');
+  const ivp=impliedVol('PUT',S,K,T,r,q,p.px);
+  ck('IV round-trip (put)', ivp.ok && Math.abs(ivp.iv-v)<1e-6);
+  ck('IV rejects below no-arb bound', !impliedVol('CALL',120,K,T,r,q,1.0).ok);
+  ck('IV rejects above upper bound',  !impliedVol('CALL',S,K,T,r,q,S).ok);
+
+  // Black-76 identity: BSM with q = r equals e^-rT (F N(d1) - K N(d2))
+  const F=100, b76=bsm('CALL',F,K,T,r,r,v);
+  const sv=v*Math.sqrt(T), d1=(Math.log(F/K)+0.5*v*v*T)/sv, d2=d1-sv;
+  const direct=Math.exp(-r*T)*(F*ncdf(d1)-K*ncdf(d2));
+  ck('Black-76 = BSM with q≡r', Math.abs(b76.px-direct)<1e-12, (b76.px-direct).toExponential(1));
+
+  const zl=bsm('CALL',S,K,T,r,q,0);
+  ck('zero-vol → discounted fwd intrinsic',
+     Math.abs(zl.px-Math.exp(-r*T)*Math.max(S*Math.exp((r-q)*T)-K,0))<1e-12);
+  ck('expired option = intrinsic', Math.abs(bsm('CALL',110,105,0,r,q,v).px-5)<1e-12);
+  ck('deep ITM call delta → e^-qT', Math.abs(bsm('CALL',10000,105,T,r,q,v).delta-Math.exp(-q*T))<1e-9);
+  ck('deep OTM call delta → 0', bsm('CALL',1,105,T,r,q,v).delta<1e-9);
+  ck('ncdf(0) = 0.5', Math.abs(ncdf(0)-0.5)<1e-15);
+  ck('ncdf symmetry', Math.abs(ncdf(1.6449)+ncdf(-1.6449)-1)<1e-14);
+  ck('ncdf(1.96) ≈ 0.975', Math.abs(ncdf(1.959963985)-0.975)<1e-9, ncdf(1.959963985).toFixed(9));
+
+  $('tests').innerHTML=out.map(t=>
+    `<div class="test"><span>${t.name}</span>
+      <b class="${t.cond?'ok':'fail'}">${t.cond?'PASS':'FAIL'}${t.detail?' · '+t.detail:''}</b></div>`).join('');
+  const all=pass===out.length;
+  $('testHdr').innerHTML=`<b class="${all?'ok':'fail'}">${pass}/${out.length} PASS</b>`;
+  if(!all) document.body.style.borderTop='3px solid var(--bear)';
+}
+
+/* ===================================================================
+   BOOT
+   =================================================================== */
+['S','r','q','mult','basis','hz','rg','sStep','vStep'].forEach(id=>
+  $(id).addEventListener('input',recompute));
+$('basis').addEventListener('change',recompute);
+$('asof').value=new Date().toISOString().slice(0,10);
+loadPreset('PUT SPREAD 60D');
+runTests();
+exportBook();
+tryFetchBook();
+</script>
+</body>
+</html>
