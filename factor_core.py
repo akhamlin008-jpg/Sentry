@@ -162,7 +162,7 @@ DEFAULT_GROUP_WEIGHTS = {
 }
 
 def standardize_group(rows, group, method="rank", winsor=(0.02, 0.98),
-                      sectors=None, neutralize=False):
+                      sectors=None, neutralize=True):
     """Standardize every sub-metric of one group across the universe, sign it
     by direction, optionally sector-neutralize, then average the available
     sub-metrics per name (nan-safe). Returns (group_score[N], coverage[N]) where
