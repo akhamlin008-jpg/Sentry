@@ -1,24 +1,18 @@
 name: refresh-data
 
-# Fetches market data on a schedule and commits the on-disk cache, so the
-# Streamlit app reads pre-fetched files instead of calling Yahoo at request time.
-# A batch job only has to succeed ONCE per run (and retries next run), which is
-# far more reliable than a live app that must succeed on every page load.
-#
-# NEW: after the fetch, export_snapshot.py distills the warm cache into ONE
-# static snapshot.json for the 3D holodeck front-end. The site fetches that
-# file from raw.githubusercontent.com (or same-repo GitHub Pages), so the
-# whole front-end self-updates at this Action's cadence with zero servers.
+# Fetches market data, commits the cache, then saves Sentry's scores to
+# brief/sentry_brief.json for the Morning Letter (read at 6:45 AM ET).
 
 on:
   schedule:
-    # Times are UTC. 11:00 UTC ≈ 06:00 ET (pre-market). Add more lines for
-    # intraday refreshes if you want fresher prices.
-    - cron: "30 6 * * 1-5"
+    # 5:30 AM New York time on weekdays, leaving time for a slow refresh
+    # and GitHub start delays before the 6:45 AM letter.
+    - cron: "30 5 * * 1-5"
+      timezone: "America/New_York"
   workflow_dispatch: {}   # manual "Run workflow" button
 
 permissions:
-  contents: write          # needed to commit the refreshed cache + snapshot
+  contents: write          # needed to commit the refreshed cache and brief
 
 concurrency:
   group: refresh-data
@@ -27,6 +21,7 @@ concurrency:
 jobs:
   refresh:
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
 
@@ -40,31 +35,24 @@ jobs:
 
       - name: Fetch snapshot
         env:
-          # ZERO-EDIT DEFAULT: USE_EDGAR=0 runs on Yahoo and needs no email.
-          # To enable SEC EDGAR fundamentals (US filers), set USE_EDGAR to "1"
-          # AND put a real contact email in EDGAR_USER_AGENT below (EDGAR 403s
-          # blank/placeholder emails).
           USE_EDGAR: "1"
           EDGAR_USER_AGENT: "Sentry akhamlin008@gmail.com"
           INCLUDE_HOLDERS_INSIDER: "0"
           DCF_CACHE_DIR: ".cache"
         run: python fetch_snapshot.py
 
-      - name: Export site snapshot (snapshot.json for the 3D front-end)
+      - name: Export brief for the Morning Letter
+        if: always()   # still writes a file (marked failed) if the fetch had trouble
         env:
           USE_EDGAR: "1"
           EDGAR_USER_AGENT: "Sentry akhamlin008@gmail.com"
           INCLUDE_HOLDERS_INSIDER: "0"
           DCF_CACHE_DIR: ".cache"
-        run: python export_snapshot.py
+        run: python export_brief.py
 
-      - name: Export arbitrage snapshot (arb.json for the front-end)
-        env:
-          DCF_CACHE_DIR: ".cache"
-        run: python export_arb.py
-
-      - name: Commit refreshed cache + snapshot
+      - name: Commit refreshed cache and brief
+        if: always()
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
           commit_message: "chore: data refresh"
-          file_pattern: ".cache/** snapshot.json arb.json"
+          file_pattern: ".cache/** brief/**"
