@@ -5,10 +5,9 @@ name: refresh-data
 
 on:
   schedule:
-    # 5:30 AM New York time on weekdays, leaving time for a slow refresh
-    # and GitHub start delays before the 6:45 AM letter.
-    - cron: "30 5 * * 1-5"
-      timezone: "America/New_York"
+    # 5:30 AM New York time (UTC-4 / EDT) on weekdays = 09:30 UTC,
+    # leaving time for a slow refresh and GitHub start delays before the 6:45 AM letter.
+    - cron: "30 9 * * 1-5"
   workflow_dispatch: {}   # manual "Run workflow" button
 
 permissions:
