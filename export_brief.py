@@ -12,7 +12,7 @@ Uses Sentry's own math with the app's default settings:
   pulse      -> 5-day return z-score. NOT in the Sentry v3 code; defined here.
                 bullish z > +0.5, bearish z < -0.5, otherwise neutral.
 
-Always writes a file. If something fails, the file says so instead of
+Always writes a file. If something fails, the file says so instead of 
 guessing.
 """
 from __future__ import annotations
