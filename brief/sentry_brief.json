@@ -1,5 +1,5 @@
 {
- "generated_et": "2026-09-22 07:50 EDT",
+ "generated_et": "2026-09-22 10:16 EDT",
  "notes": {
   "composite": "Sentry factor_core, app defaults (rank, 5 live factors, min 3 observed)",
   "pulse": "5-day return / (prior 60-day daily vol x sqrt(5)); bullish > +0.5, bearish < -0.5. Defined by this script.",
@@ -8,7 +8,7 @@
  "status": "ok",
  "universe": 503,
  "loaded": 503,
- "data_as_of": "2026-09-22T11:50",
+ "data_as_of": "2026-09-22T14:16",
  "top20_composite": [
   {
    "rank": 1,
