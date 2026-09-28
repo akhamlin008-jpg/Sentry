@@ -1,0 +1,75 @@
+SENTRY — PROPRIETARY LICENSE (ALL RIGHTS RESERVED)
+
+Copyright (c) 2026 [Aiden Hamlin]. All rights reserved.
+
+This repository, including all source code, documentation, configuration
+files, tests, and other materials in it (together, the "Software"), is the
+proprietary work of the copyright holder named above. The Software is NOT
+open source. No license or right to use it is granted except as expressly
+stated below.
+
+1. PERMITTED USE
+You may view and read the Software solely to evaluate the author's work in
+connection with professional networking, recruiting, or potential business
+discussions with the author ("Evaluation").
+
+2. RESTRICTIONS
+Unless you have the copyright holder's prior written permission, you may not,
+in whole or in part:
+  (a) copy, clone, download, or otherwise reproduce the Software, other than
+      temporary copies made automatically by your browser or device while
+      viewing it;
+  (b) modify, adapt, translate, or create derivative works based on the
+      Software;
+  (c) distribute, publish, sublicense, sell, lease, lend, or otherwise make
+      the Software available to any third party;
+  (d) run, deploy, or host the Software, or offer it or any part of it as a
+      product or service, whether or not for a fee;
+  (e) incorporate the Software, or any part of it, into any other product,
+      project, or service, commercial or non-commercial; or
+  (f) remove or alter any copyright notice or this license.
+
+3. GITHUB TERMS OF SERVICE
+Because the Software is hosted in a public GitHub repository, GitHub's Terms
+of Service allow GitHub users to view it and to fork it within GitHub. Nothing
+in this license is intended to limit rights granted by GitHub's Terms of
+Service, to the extent those Terms grant them. A fork or any other copy,
+however, does not give you any right to use, run, modify, distribute, or build
+on the Software beyond what GitHub's Terms of Service require. All other
+rights remain reserved to the copyright holder.
+
+4. OWNERSHIP
+All right, title, and interest in the Software, including all copyrights and
+other intellectual property rights, remain with the copyright holder. No
+rights are granted by implication, estoppel, or otherwise, except as
+expressly stated in Section 1.
+
+5. THIRD-PARTY MATERIALS
+This license covers only the copyright holder's original work. Third-party
+libraries listed in requirements.txt are governed by their own licenses. Data
+included in or retrieved by the Software from third-party sources (for
+example, SEC EDGAR, Yahoo Finance, or Stooq) is subject to those sources' own
+terms.
+
+6. NOT FINANCIAL ADVICE; NO WARRANTY
+The Software is provided for demonstration and informational purposes only.
+Nothing it produces, including valuations, scores, risk metrics, or simulated
+trades, is investment, financial, legal, or tax advice.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE, ACCURACY, AND NON-INFRINGEMENT.
+
+7. LIMITATION OF LIABILITY
+IN NO EVENT SHALL THE COPYRIGHT HOLDER BE LIABLE FOR ANY CLAIM, DAMAGES, OR
+OTHER LIABILITY, INCLUDING ANY INVESTMENT OR TRADING LOSSES, WHETHER IN AN
+ACTION OF CONTRACT, TORT, OR OTHERWISE, ARISING FROM, OUT OF, OR IN CONNECTION
+WITH THE SOFTWARE OR ANY USE OF IT.
+
+8. TERMINATION
+Any use of the Software outside Section 1, or any breach of Section 2,
+automatically ends your permission under Section 1.
+
+9. PERMISSION REQUESTS
+To request permission for any use not allowed above, contact:
+[aktradinglive.hamlinholdings@gmail.com]
