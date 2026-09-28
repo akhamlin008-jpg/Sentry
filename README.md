@@ -61,3 +61,8 @@ python test_factor_risk.py
 ```
 
 Both are offline (no network) and should print all-pass.
+
+## License
+Copyright (c) 2026 [Aiden Hamlin, A.K. Hamlin Holding Co.]. All rights reserved.
+Proprietary software, not open source. Viewing for evaluation only; no copying,
+modifying, redistributing, or deploying without written permission. See LICENSE.
