@@ -1,0 +1,10 @@
+# Dev/CI only. NOTHING here may become a runtime import -- the free-tier
+# Streamlit deploy runs on requirements.txt exactly (enforced by
+# tests/test_import_guard.py and the dep-guard step in .github/workflows/tests.yml).
+-r requirements.txt
+pytest>=8.0
+# Validation oracle for the hand-rolled risk/factor math (brings scipy +
+# statsmodels). ~70% of gs-quant is a Marquee network client that needs
+# institutional GS credentials; we use only the offline timeseries functions,
+# in tests, as an independent second implementation.
+gs-quant>=1.1
